@@ -106,6 +106,7 @@ public final class SystemSessionProperties
     public static final String LEGACY_UNNEST = "legacy_unnest";
     public static final String STATISTICS_CPU_TIMER_ENABLED = "statistics_cpu_timer_enabled";
     public static final String ENABLE_STATS_CALCULATOR = "enable_stats_calculator";
+    public static final String QUERY_MAX_DATA_SIZE = "query_max_data_size";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -490,7 +491,16 @@ public final class SystemSessionProperties
                         ENABLE_STATS_CALCULATOR,
                         "Experimental: Enable statistics calculator",
                         featuresConfig.isEnableStatsCalculator(),
-                        false));
+                        false),
+                new PropertyMetadata<>(
+                        QUERY_MAX_DATA_SIZE,
+                        "Maximum data size of a query",
+                        VARCHAR,
+                        DataSize.class,
+                        queryManagerConfig.getQueryMaxDataSize(),
+                        true,
+                        value -> DataSize.valueOf((String) value),
+                        DataSize::toString));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -810,5 +820,10 @@ public final class SystemSessionProperties
     public static boolean isEnableStatsCalculator(Session session)
     {
         return session.getSystemProperty(ENABLE_STATS_CALCULATOR, Boolean.class);
+    }
+
+    public static DataSize getQueryMaxDataSize(Session session)
+    {
+        return session.getSystemProperty(QUERY_MAX_DATA_SIZE, DataSize.class);
     }
 }

@@ -53,6 +53,7 @@ import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.concurrent.ThreadPoolExecutorMBean;
 import io.airlift.log.Logger;
+import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import org.joda.time.DateTime;
 import org.weakref.jmx.Flatten;
@@ -87,6 +88,7 @@ import static com.facebook.presto.execution.ParameterExtractor.getParameterCount
 import static com.facebook.presto.execution.QueryState.RUNNING;
 import static com.facebook.presto.spi.NodeState.ACTIVE;
 import static com.facebook.presto.spi.StandardErrorCode.ABANDONED_QUERY;
+import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_DATA_SIZE_LIMIT;
 import static com.facebook.presto.spi.StandardErrorCode.EXCEEDED_TIME_LIMIT;
 import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
 import static com.facebook.presto.spi.StandardErrorCode.QUERY_TEXT_TOO_LARGE;
@@ -246,6 +248,13 @@ public class SqlQueryManager
                 }
                 catch (Throwable e) {
                     log.error(e, "Error enforcing query CPU time limits");
+                }
+
+                try {
+                    enforceQueryMaxDataSizeLimits();
+                }
+                catch (Throwable e) {
+                    log.warn(e, "Error enforcing query driver number limits");
                 }
 
                 try {
@@ -639,6 +648,23 @@ public class SqlQueryManager
             Duration limit = Ordering.natural().min(maxQueryCpuTime, sessionLimit);
             if (cpuTime.compareTo(limit) > 0) {
                 query.fail(new ExceededCpuLimitException(limit));
+            }
+        }
+    }
+
+    /**
+     * Enforce max data size at the query level
+     */
+    public void enforceQueryMaxDataSizeLimits()
+    {
+        for (QueryExecution query : queries.values()) {
+            if (query.getQueryInfo().getState().isDone()) {
+                continue;
+            }
+            DataSize queryMaxDataSize = SystemSessionProperties.getQueryMaxDataSize(query.getSession());
+            DataSize rawInputDataSize = query.getQueryInfo().getQueryStats().getRawInputDataSize();
+            if (queryMaxDataSize.compareTo(rawInputDataSize) < 0) {
+                query.fail(new PrestoException(EXCEEDED_DATA_SIZE_LIMIT, "Query exceeded maximum data size limit of " + queryMaxDataSize));
             }
         }
     }
