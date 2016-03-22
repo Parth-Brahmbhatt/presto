@@ -33,6 +33,15 @@
         <tag>0.212</tag>
     </scm>
 
+    <repositories>
+        <repository>
+            <id>nfrepo-everything-pom</id>
+            <name>Netflix Artifactory</name>
+            <url>http://artifacts.netflix.com/nfrepo-everything-pom</url>
+        </repository>
+    </repositories>
+
+
     <properties>
         <air.main.basedir>${project.basedir}</air.main.basedir>
 
@@ -381,7 +390,7 @@
             <dependency>
                 <groupId>com.facebook.presto.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>1.2.0-2</version>
+                <version>0.17-nflx.2</version>
             </dependency>
 
             <dependency>

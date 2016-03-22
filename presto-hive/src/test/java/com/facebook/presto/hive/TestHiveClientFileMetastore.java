@@ -34,7 +34,6 @@ public class TestHiveClientFileMetastore
         return new FileHiveMetastore(hdfsEnvironment, baseDir.toURI().toString(), "test");
     }
 
-    @Override
     public void testMismatchSchemaTable()
     {
         // FileHiveMetastore only supports replaceTable() for views

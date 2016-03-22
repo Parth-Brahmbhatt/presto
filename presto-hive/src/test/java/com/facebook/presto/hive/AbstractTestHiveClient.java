@@ -155,7 +155,6 @@ import static com.facebook.presto.hive.HiveMetadata.PRESTO_VERSION_NAME;
 import static com.facebook.presto.hive.HiveMetadata.convertToPredicate;
 import static com.facebook.presto.hive.HiveStorageFormat.AVRO;
 import static com.facebook.presto.hive.HiveStorageFormat.DWRF;
-import static com.facebook.presto.hive.HiveStorageFormat.JSON;
 import static com.facebook.presto.hive.HiveStorageFormat.ORC;
 import static com.facebook.presto.hive.HiveStorageFormat.PARQUET;
 import static com.facebook.presto.hive.HiveStorageFormat.RCBINARY;
@@ -999,31 +998,6 @@ public abstract class AbstractTestHiveClient
             ConnectorTableHandle tableHandle = getTableHandle(metadata, tablePartitionFormat);
             List<ConnectorTableLayoutResult> tableLayoutResults = metadata.getTableLayouts(newSession(), tableHandle, Constraint.alwaysTrue(), Optional.empty());
             assertExpectedTableLayout(getOnlyElement(tableLayoutResults).getTableLayout(), tableLayout);
-        }
-    }
-
-    @Test
-    public void testMismatchSchemaTable()
-            throws Exception
-    {
-        for (HiveStorageFormat storageFormat : createTableFormats) {
-            // TODO: fix coercion for JSON
-            if (storageFormat == JSON) {
-                continue;
-            }
-            SchemaTableName temporaryMismatchSchemaTable = temporaryTable("mismatch_schema");
-            try {
-                doTestMismatchSchemaTable(
-                        temporaryMismatchSchemaTable,
-                        storageFormat,
-                        MISMATCH_SCHEMA_TABLE_BEFORE,
-                        MISMATCH_SCHEMA_TABLE_DATA_BEFORE,
-                        MISMATCH_SCHEMA_TABLE_AFTER,
-                        MISMATCH_SCHEMA_TABLE_DATA_AFTER);
-            }
-            finally {
-                dropTable(temporaryMismatchSchemaTable);
-            }
         }
     }
 
