@@ -116,6 +116,12 @@
         </artifact>
     </artifactSet>
 
+    <artifactSet to="plugin/netflix">
+        <artifact id="${project.groupId}:presto-netflix:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
     <artifactSet to="plugin/postgresql">
         <artifact id="${project.groupId}:presto-postgresql:zip:${project.version}">
             <unpack />
