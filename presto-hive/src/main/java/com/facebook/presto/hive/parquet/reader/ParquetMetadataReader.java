@@ -16,16 +16,16 @@ package com.facebook.presto.hive.parquet.reader;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import parquet.format.ColumnChunk;
-import parquet.format.ColumnMetaData;
-import parquet.format.ConvertedType;
-import parquet.format.Encoding;
-import parquet.format.FileMetaData;
-import parquet.format.KeyValue;
-import parquet.format.RowGroup;
-import parquet.format.SchemaElement;
-import parquet.format.Statistics;
-import parquet.format.Type;
+import org.apache.parquet.format.ColumnChunk;
+import org.apache.parquet.format.ColumnMetaData;
+import org.apache.parquet.format.ConvertedType;
+import org.apache.parquet.format.Encoding;
+import org.apache.parquet.format.FileMetaData;
+import org.apache.parquet.format.KeyValue;
+import org.apache.parquet.format.RowGroup;
+import org.apache.parquet.format.SchemaElement;
+import org.apache.parquet.format.Statistics;
+import org.apache.parquet.format.Type;
 import parquet.hadoop.metadata.BlockMetaData;
 import parquet.hadoop.metadata.ColumnChunkMetaData;
 import parquet.hadoop.metadata.ColumnPath;
@@ -53,7 +53,7 @@ import java.util.Set;
 
 import static com.facebook.presto.hive.parquet.ParquetValidationUtils.validateParquet;
 import static java.nio.charset.StandardCharsets.US_ASCII;
-import static parquet.format.Util.readFileMetaData;
+import static org.apache.parquet.format.Util.readFileMetaData;
 
 public final class ParquetMetadataReader
 {
