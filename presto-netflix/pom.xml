@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>presto-netflix</artifactId>
-    <description>Presto Plugin for Netflix Hive UDFs</description>
+    <description>Presto Plugin for Netflix UDFs and query metric collection</description>
     <packaging>presto-plugin</packaging>
 
     <properties>
@@ -135,6 +135,13 @@
         <dependency>
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-generator-annprocess</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- for testing -->
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
             <scope>test</scope>
         </dependency>
 
