@@ -91,6 +91,7 @@
         <module>presto-blackhole</module>
         <module>presto-memory</module>
         <module>presto-orc</module>
+        <module>presto-parquet</module>
         <module>presto-rcfile</module>
         <module>presto-hive</module>
         <module>presto-hive-hadoop2</module>
@@ -199,6 +200,12 @@
             <dependency>
                 <groupId>com.facebook.presto</groupId>
                 <artifactId>presto-orc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.facebook.presto</groupId>
+                <artifactId>presto-parquet</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
