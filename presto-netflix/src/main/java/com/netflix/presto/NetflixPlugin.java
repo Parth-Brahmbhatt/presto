@@ -14,6 +14,7 @@
 package com.netflix.presto;
 
 import com.facebook.presto.spi.Plugin;
+import com.facebook.presto.spi.eventlistener.EventListenerFactory;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
@@ -21,11 +22,19 @@ import java.util.Set;
 public class NetflixPlugin
             implements Plugin
 {
+    private EventListenerFactory eventListenerFactory;
+
     @Override
     public Set<Class<?>> getFunctions()
     {
         return ImmutableSet.<Class<?>>builder()
                 .add(NetflixFunctions.class)
                 .build();
+    }
+
+    @Override
+    public Iterable<EventListenerFactory> getEventListenerFactories()
+    {
+        return ImmutableSet.of(new NetflixEventListenerFactory());
     }
 }
