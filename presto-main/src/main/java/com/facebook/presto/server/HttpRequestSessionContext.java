@@ -152,7 +152,7 @@ public final class HttpRequestSessionContext
         this.systemProperties = systemProperties.build();
         this.catalogSessionProperties = catalogSessionProperties.entrySet().stream()
                 .collect(toImmutableMap(Entry::getKey, entry -> ImmutableMap.copyOf(entry.getValue())));
-
+        identity.setSessionPropertiesByCatalog(catalogSessionProperties);
         preparedStatements = parsePreparedStatementsHeaders(servletRequest);
 
         String transactionIdHeader = servletRequest.getHeader(PRESTO_TRANSACTION_ID);

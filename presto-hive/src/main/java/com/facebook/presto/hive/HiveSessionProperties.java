@@ -73,6 +73,7 @@ public final class HiveSessionProperties
     private static final String PARTITION_STATISTICS_SAMPLE_SIZE = "partition_statistics_sample_size";
     private static final String IGNORE_CORRUPTED_STATISTICS = "ignore_corrupted_statistics";
     private static final String COLLECT_COLUMN_STATISTICS_ON_WRITE = "collect_column_statistics_on_write";
+    public static final String AWS_IAM_ROLE = "aws_iam_role";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -266,6 +267,11 @@ public final class HiveSessionProperties
                         COLLECT_COLUMN_STATISTICS_ON_WRITE,
                         "Experimental: Enables automatic column level statistics collection on write",
                         hiveClientConfig.isCollectColumnStatisticsOnWrite(),
+                        false),
+                stringProperty(
+                        AWS_IAM_ROLE,
+                        "AWS IAM Role for S3",
+                        "",
                         false));
     }
 

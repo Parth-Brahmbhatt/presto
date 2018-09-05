@@ -39,7 +39,6 @@ import static com.facebook.presto.spi.security.AccessDeniedException.denySelectC
 import static com.facebook.presto.spi.security.AccessDeniedException.denySetCatalogSessionProperty;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyShowSchemas;
 import static com.facebook.presto.spi.security.AccessDeniedException.denyShowTablesMetadata;
-import static java.util.Collections.emptySet;
 
 public interface ConnectorAccessControl
 {
@@ -92,7 +91,7 @@ public interface ConnectorAccessControl
      */
     default Set<String> filterSchemas(ConnectorTransactionHandle transactionHandle, Identity identity, Set<String> schemaNames)
     {
-        return emptySet();
+        return schemaNames;
     }
 
     /**
@@ -144,7 +143,7 @@ public interface ConnectorAccessControl
      */
     default Set<SchemaTableName> filterTables(ConnectorTransactionHandle transactionHandle, Identity identity, Set<SchemaTableName> tableNames)
     {
-        return emptySet();
+        return tableNames;
     }
 
     /**

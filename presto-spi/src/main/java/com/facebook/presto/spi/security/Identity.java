@@ -14,6 +14,7 @@
 package com.facebook.presto.spi.security;
 
 import java.security.Principal;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -23,11 +24,22 @@ public class Identity
 {
     private final String user;
     private final Optional<Principal> principal;
+    private Map<String, Map<String, String>> sessionPropertiesByCatalog;
 
     public Identity(String user, Optional<Principal> principal)
     {
         this.user = requireNonNull(user, "user is null");
         this.principal = requireNonNull(principal, "principal is null");
+    }
+
+    public void setSessionPropertiesByCatalog(Map<String, Map<String, String>> sessionPropertiesByCatalog)
+    {
+        this.sessionPropertiesByCatalog = sessionPropertiesByCatalog;
+    }
+
+    public Map<String, Map<String, String>> getSessionPropertiesByCatalog()
+    {
+        return sessionPropertiesByCatalog;
     }
 
     public String getUser()
