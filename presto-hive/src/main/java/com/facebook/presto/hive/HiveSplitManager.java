@@ -90,6 +90,8 @@ public class HiveSplitManager
     private final int splitLoaderConcurrency;
     private final boolean recursiveDfsWalkerEnabled;
     private final CounterStat highMemorySplitSourceCounter;
+    private PrestoHdfsCache prestoHdfsCache;
+    private boolean isHdfsDeployed;
 
     @Inject
     public HiveSplitManager(
@@ -116,6 +118,11 @@ public class HiveSplitManager
                 hiveClientConfig.getMaxInitialSplits(),
                 hiveClientConfig.getSplitLoaderConcurrency(),
                 hiveClientConfig.getRecursiveDirWalkerEnabled());
+        this.prestoHdfsCache = new PrestoHdfsCache();
+        this.isHdfsDeployed = hiveClientConfig.isHdfsCacheEnabled();
+        if (isHdfsDeployed) {
+            prestoHdfsCache.setHdfsCache(hiveClientConfig.getHdfsCacheDefaultFs(), hiveClientConfig.getHdfsCacheReplicationFactor());
+        }
     }
 
     public HiveSplitManager(
@@ -203,7 +210,9 @@ public class HiveSplitManager
                 directoryLister,
                 executor,
                 splitLoaderConcurrency,
-                recursiveDfsWalkerEnabled);
+                recursiveDfsWalkerEnabled,
+                prestoHdfsCache,
+                isHdfsDeployed);
 
         HiveSplitSource splitSource;
         switch (splitSchedulingStrategy) {

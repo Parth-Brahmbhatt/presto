@@ -15,6 +15,7 @@ package com.facebook.presto.hive.util;
 
 import com.facebook.presto.hive.DirectoryLister;
 import com.facebook.presto.hive.NamenodeStats;
+import com.facebook.presto.hive.PrestoHdfsCache;
 import com.facebook.presto.spi.PrestoException;
 import com.google.common.collect.AbstractIterator;
 import io.airlift.stats.TimeStat;
@@ -51,19 +52,25 @@ public class HiveFileIterator
     private final NestedDirectoryPolicy nestedDirectoryPolicy;
 
     private Iterator<LocatedFileStatus> remoteIterator = Collections.emptyIterator();
+    private final PrestoHdfsCache prestoHdfsCache;
+    private final boolean isHdfsDeployed;
 
     public HiveFileIterator(
             Path path,
             FileSystem fileSystem,
             DirectoryLister directoryLister,
             NamenodeStats namenodeStats,
-            NestedDirectoryPolicy nestedDirectoryPolicy)
+            NestedDirectoryPolicy nestedDirectoryPolicy,
+            boolean isHdfsDeployed,
+            PrestoHdfsCache prestoHdfsCache)
     {
         paths.addLast(requireNonNull(path, "path is null"));
         this.fileSystem = requireNonNull(fileSystem, "fileSystem is null");
         this.directoryLister = requireNonNull(directoryLister, "directoryLister is null");
         this.namenodeStats = requireNonNull(namenodeStats, "namenodeStats is null");
         this.nestedDirectoryPolicy = requireNonNull(nestedDirectoryPolicy, "nestedDirectoryPolicy is null");
+        this.isHdfsDeployed = isHdfsDeployed;
+        this.prestoHdfsCache = prestoHdfsCache;
     }
 
     @Override
@@ -91,6 +98,18 @@ public class HiveFileIterator
                     }
                 }
 
+                if (isHdfsDeployed) {
+                    try {
+                        Path s3Path = status.getPath();
+                        Path s3OrHdfsPath = prestoHdfsCache.getHdfsPathOrCopyToHdfs(s3Path);
+                        if (!s3OrHdfsPath.equals(s3Path)) {
+                            status = prestoHdfsCache.getLocatedStatus(s3OrHdfsPath);
+                        }
+                    }
+                    catch (IOException ignored) {
+                        //do Nothing
+                    }
+                }
                 return status;
             }
 

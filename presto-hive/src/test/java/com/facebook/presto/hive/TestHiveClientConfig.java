@@ -110,7 +110,10 @@ public class TestHiveClientConfig
                 .setPartitionStatisticsSampleSize(100)
                 .setIgnoreCorruptedStatistics(false)
                 .setCollectColumnStatisticsOnWrite(false)
-                .setS3RoleMappings((String) null));
+                .setS3RoleMappings((String) null)
+                .setHdfsCacheEnabled(false)
+                .setHdfsCacheDefaultFs((String) null)
+                .setHdfsCacheReplicationFactor(3));
     }
 
     @Test
@@ -190,6 +193,9 @@ public class TestHiveClientConfig
                 .put("hive.ignore-corrupted-statistics", "true")
                 .put("hive.collect-column-statistics-on-write", "true")
                 .put("hive.s3.role.mappings", "s3rolemappings")
+                .put("hive.hdfs-cache-default-fs", "hdfs://localhost:8020")
+                .put("hive.hdfs-cache-enabled", "true")
+                .put("hive.hdfs-cache-replication", "10")
                 .build();
 
         HiveClientConfig expected = new HiveClientConfig()
@@ -265,7 +271,10 @@ public class TestHiveClientConfig
                 .setPartitionStatisticsSampleSize(1234)
                 .setIgnoreCorruptedStatistics(true)
                 .setCollectColumnStatisticsOnWrite(true)
-                .setS3RoleMappings("s3rolemappings");
+                .setS3RoleMappings("s3rolemappings")
+                .setHdfsCacheDefaultFs("hdfs://localhost:8020")
+                .setHdfsCacheEnabled(true)
+                .setHdfsCacheReplicationFactor(10);
 
         ConfigAssertions.assertFullMapping(properties, expected);
     }
