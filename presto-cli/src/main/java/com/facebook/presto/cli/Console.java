@@ -309,6 +309,9 @@ public class Console
         }
 
         try (Query query = queryRunner.startQuery(finalSql)) {
+            if (!interactive) {
+                System.err.println(query.getInfoURI());
+            }
             boolean success = query.renderOutput(System.out, outputFormat, interactive);
 
             ClientSession session = queryRunner.getSession();

@@ -34,6 +34,7 @@ import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.io.Writer;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,6 +61,10 @@ public class Query
     {
         this.client = requireNonNull(client, "client is null");
         this.debug = debug;
+    }
+    public URI getInfoURI()
+    {
+        return client.currentStatusInfo().getInfoUri();
     }
 
     public Optional<String> getSetCatalog()
