@@ -50,7 +50,6 @@
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-array</artifactId>
         </dependency>
-
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-client</artifactId>
@@ -286,7 +285,6 @@
             <groupId>org.jgrapht</groupId>
             <artifactId>jgrapht-core</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.pcollections</groupId>
             <artifactId>pcollections</artifactId>
@@ -301,7 +299,6 @@
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt</artifactId>
         </dependency>
-
         <!-- used by tests but also needed transitively -->
         <dependency>
             <groupId>org.apache.bval</groupId>
@@ -376,6 +373,11 @@
             <artifactId>jaxrs-testing</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.netflix.data</groupId>
+            <artifactId>data-utils</artifactId>
+            <version>0.1.87</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -448,4 +450,5 @@
             </build>
         </profile>
     </profiles>
+
 </project>

@@ -462,14 +462,14 @@ public class TestApproximatePercentileAggregation
                 createRLEBlock(ImmutableList.of(0.5, 0.8), 3));
     }
 
-    private static RunLengthEncodedBlock createRLEBlock(double percentile, int positionCount)
+    static RunLengthEncodedBlock createRLEBlock(double percentile, int positionCount)
     {
         BlockBuilder blockBuilder = DOUBLE.createBlockBuilder(null, 1);
         DOUBLE.writeDouble(blockBuilder, percentile);
         return new RunLengthEncodedBlock(blockBuilder.build(), positionCount);
     }
 
-    private static RunLengthEncodedBlock createRLEBlock(Iterable<Double> percentiles, int positionCount)
+    static RunLengthEncodedBlock createRLEBlock(Iterable<Double> percentiles, int positionCount)
     {
         BlockBuilder rleBlockBuilder = new ArrayType(DOUBLE).createBlockBuilder(null, 1);
         BlockBuilder arrayBlockBuilder = rleBlockBuilder.beginBlockEntry();
@@ -481,5 +481,12 @@ public class TestApproximatePercentileAggregation
         rleBlockBuilder.closeEntry();
 
         return new RunLengthEncodedBlock(rleBlockBuilder.build(), positionCount);
+    }
+
+    static RunLengthEncodedBlock createRLEBlock(long value, int positionCount)
+    {
+        BlockBuilder blockBuilder = BIGINT.createBlockBuilder(null, 1);
+        BIGINT.writeLong(blockBuilder, value);
+        return new RunLengthEncodedBlock(blockBuilder.build(), positionCount);
     }
 }
