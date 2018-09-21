@@ -510,9 +510,6 @@ public class HiveMetadata
             try {
                 columns.put(tableName, getTableMetadata(tableName).getColumns());
             }
-            catch (HiveViewNotSupportedException e) {
-                // view is not supported
-            }
             catch (TableNotFoundException e) {
                 // table disappeared during listing operation
             }
@@ -1339,7 +1336,7 @@ public class HiveMetadata
 
         Optional<Table> existing = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
         if (existing.isPresent()) {
-            if (!replace || !HiveUtil.isPrestoView(existing.get())) {
+            if (!replace || !existing.get().getTableType().equals(TableType.VIRTUAL_VIEW.name())) {
                 throw new ViewAlreadyExistsException(viewName);
             }
 
@@ -1397,11 +1394,14 @@ public class HiveMetadata
 
         for (SchemaTableName schemaTableName : tableNames) {
             Optional<Table> table = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName());
-            if (table.isPresent() && HiveUtil.isPrestoView(table.get())) {
+            if (table.isPresent() && table.get().getTableType().equals(TableType.VIRTUAL_VIEW.name())) {
                 views.put(schemaTableName, new ConnectorViewDefinition(
                         schemaTableName,
-                        Optional.ofNullable(table.get().getOwner()),
-                        decodeViewData(table.get().getViewOriginalText().get())));
+                        Optional.ofNullable(table.get().getOwner()).map(owner -> owner.replaceAll("@.*", "")),
+                        "true".equals(table.get().getParameters().get(PRESTO_VIEW_FLAG)) ?
+                                decodeViewData(table.get().getViewOriginalText().get()) : null,
+                        table.get().getViewExpandedText().map(sql -> sql.replace('`', '"')),
+                        table.get().getViewOriginalText()));
             }
         }
 

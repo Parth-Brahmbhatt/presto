@@ -22,12 +22,22 @@ public class ConnectorViewDefinition
     private final SchemaTableName name;
     private final Optional<String> owner;
     private final String viewData;
+    private final Optional<String> viewExpandedText;
+    private final Optional<String> viewOriginalText;
 
     public ConnectorViewDefinition(SchemaTableName name, Optional<String> owner, String viewData)
     {
+        this(name, owner, requireNonNull(viewData, "viewData is null"), Optional.empty(), Optional.empty());
+    }
+
+    public ConnectorViewDefinition(SchemaTableName name, Optional<String> owner, String viewData,
+                                   Optional<String> viewExpandedText, Optional<String> viewOriginalText)
+    {
         this.name = requireNonNull(name, "name is null");
         this.owner = requireNonNull(owner, "owner is null");
-        this.viewData = requireNonNull(viewData, "viewData is null");
+        this.viewData = viewData;
+        this.viewExpandedText = viewExpandedText;
+        this.viewOriginalText = viewOriginalText;
     }
 
     public SchemaTableName getName()
@@ -43,6 +53,16 @@ public class ConnectorViewDefinition
     public String getViewData()
     {
         return viewData;
+    }
+
+    public Optional<String> getViewExpandedText()
+    {
+        return viewExpandedText;
+    }
+
+    public Optional<String> getViewOriginalText()
+    {
+        return viewOriginalText;
     }
 
     @Override

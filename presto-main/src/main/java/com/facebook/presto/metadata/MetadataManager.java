@@ -16,6 +16,7 @@ package com.facebook.presto.metadata;
 import com.facebook.presto.Session;
 import com.facebook.presto.block.BlockEncodingManager;
 import com.facebook.presto.connector.ConnectorId;
+import com.facebook.presto.security.AllowAllAccessControl;
 import com.facebook.presto.spi.CatalogSchemaName;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
@@ -48,8 +49,13 @@ import com.facebook.presto.spi.statistics.TableStatisticsMetadata;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeSignature;
+import com.facebook.presto.sql.analyzer.Analysis;
+import com.facebook.presto.sql.analyzer.Analyzer;
 import com.facebook.presto.sql.analyzer.FeaturesConfig;
+import com.facebook.presto.sql.analyzer.QueryExplainer;
+import com.facebook.presto.sql.parser.SqlParser;
 import com.facebook.presto.sql.tree.QualifiedName;
+import com.facebook.presto.sql.tree.Statement;
 import com.facebook.presto.transaction.TransactionManager;
 import com.facebook.presto.type.TypeDeserializer;
 import com.facebook.presto.type.TypeRegistry;
@@ -479,7 +485,7 @@ public class MetadataManager
                             entry.getKey().getTableName());
 
                     ImmutableList.Builder<ColumnMetadata> columns = ImmutableList.builder();
-                    for (ViewColumn column : deserializeView(entry.getValue().getViewData()).getColumns()) {
+                    for (ViewColumn column : getViewColumns(entry.getValue())) {
                         columns.add(new ColumnMetadata(column.getName(), column.getType()));
                     }
 
@@ -779,7 +785,7 @@ public class MetadataManager
                             prefix.getCatalogName(),
                             entry.getKey().getSchemaName(),
                             entry.getKey().getTableName());
-                    views.put(viewName, deserializeView(entry.getValue().getViewData()));
+                    views.put(viewName, deserializeView(session, entry.getValue()));
                 }
             }
         }
@@ -800,7 +806,7 @@ public class MetadataManager
                     viewName.asSchemaTableName().toSchemaTablePrefix());
             ConnectorViewDefinition view = views.get(viewName.asSchemaTableName());
             if (view != null) {
-                ViewDefinition definition = deserializeView(view.getViewData());
+                ViewDefinition definition = deserializeView(session, view);
                 if (view.getOwner().isPresent()) {
                     definition = definition.withOwner(view.getOwner().get());
                 }
@@ -932,13 +938,53 @@ public class MetadataManager
         return columnPropertyManager;
     }
 
-    private ViewDefinition deserializeView(String data)
+    private ViewDefinition deserializeView(Session session, ConnectorViewDefinition view)
+    {
+        return view.getViewData() != null ?
+                deserializeJsonViewData(view.getViewData()) :
+                deserializeHiveView(session, view);
+    }
+
+    private ViewDefinition deserializeJsonViewData(String viewJson)
     {
         try {
-            return viewCodec.fromJson(data);
+            return viewCodec.fromJson(viewJson);
         }
         catch (IllegalArgumentException e) {
-            throw new PrestoException(INVALID_VIEW, "Invalid view JSON: " + data, e);
+            throw new PrestoException(INVALID_VIEW, "Invalid view JSON: " + viewJson, e);
+        }
+    }
+
+    private ViewDefinition deserializeHiveView(Session session, ConnectorViewDefinition view)
+    {
+        String sql = view.getViewExpandedText().orElseThrow(
+                () -> new PrestoException(INVALID_VIEW, "No SQL for Hive view"));
+        String originalSql = view.getViewOriginalText().orElseThrow(
+                () -> new PrestoException(INVALID_VIEW, "No original SQL for Hive view"));
+        try {
+            SqlParser sqlParser = new SqlParser();
+            Analyzer analyzer = new Analyzer(session, this, sqlParser, new AllowAllAccessControl(),
+                    Optional.<QueryExplainer>empty(), new ArrayList());
+            Statement statement = sqlParser.createStatement(sql);
+            Analysis analysis = analyzer.analyze(statement);
+            List<ViewColumn> columns = analysis.getOutputDescriptor()
+                    .getVisibleFields().stream()
+                    .map(field -> new ViewColumn(field.getName().get(), field.getType()))
+                    .collect(toImmutableList());
+            return new ViewDefinition(originalSql, session.getCatalog(), session.getSchema(), columns, view.getOwner());
+        }
+        catch (IllegalArgumentException e) {
+            throw new PrestoException(INVALID_VIEW, "Invalid view with SQL: " + sql, e);
+        }
+    }
+
+    private List<ViewColumn> getViewColumns(ConnectorViewDefinition view)
+    {
+        if (view.getViewData() != null) {
+            return deserializeJsonViewData(view.getViewData()).getColumns();
+        }
+        else {
+            throw new PrestoException(NOT_SUPPORTED, "Unsupported to get Hive view columns");
         }
     }
 

@@ -23,6 +23,7 @@ import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.security.Identity;
 import com.facebook.presto.spi.security.Privilege;
 import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.hive.metastore.TableType;
 
 import javax.inject.Inject;
 
@@ -173,8 +174,18 @@ public class SqlStandardAccessControl
     {
         // TODO: Implement column level access control
         if (!checkTablePermission(transaction, identity, tableName, SELECT)) {
-            denySelectTable(tableName.toString());
+            denySelectTable(tableName.toString(), null, getTableType(transaction, tableName));
         }
+    }
+
+    private String getTableType(ConnectorTransactionHandle transaction, SchemaTableName tableName)
+    {
+        SemiTransactionalHiveMetastore metastore = metastoreProvider.apply(((HiveTransactionHandle) transaction));
+        if (TableType.VIRTUAL_VIEW.name().equals(
+                metastore.getTable(tableName.getSchemaName(), tableName.getTableName()).get().getTableType())) {
+            return "view";
+        }
+        return "table";
     }
 
     @Override

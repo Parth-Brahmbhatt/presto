@@ -15,7 +15,6 @@ package com.facebook.presto.hive.metastore.thrift;
 
 import com.facebook.presto.hive.HiveBasicStatistics;
 import com.facebook.presto.hive.HiveType;
-import com.facebook.presto.hive.HiveViewNotSupportedException;
 import com.facebook.presto.hive.PartitionNotFoundException;
 import com.facebook.presto.hive.PartitionStatistics;
 import com.facebook.presto.hive.RetryDriver;
@@ -76,7 +75,6 @@ import java.util.function.Function;
 
 import static com.facebook.presto.hive.HiveBasicStatistics.createEmptyStatistics;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_METASTORE_ERROR;
-import static com.facebook.presto.hive.HiveUtil.PRESTO_VIEW_FLAG;
 import static com.facebook.presto.hive.metastore.HivePrincipal.toHivePrincipal;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege;
 import static com.facebook.presto.hive.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
@@ -105,7 +103,6 @@ import static org.apache.hadoop.hive.metastore.api.HiveObjectType.DATABASE;
 import static org.apache.hadoop.hive.metastore.api.HiveObjectType.TABLE;
 import static org.apache.hadoop.hive.metastore.api.PrincipalType.ROLE;
 import static org.apache.hadoop.hive.metastore.api.PrincipalType.USER;
-import static org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.HIVE_FILTER_FIELD_PARAMS;
 
 @ThreadSafe
 public class ThriftHiveMetastore
@@ -224,14 +221,11 @@ public class ThriftHiveMetastore
     {
         try {
             return retry()
-                    .stopOn(NoSuchObjectException.class, HiveViewNotSupportedException.class)
+                    .stopOn(NoSuchObjectException.class)
                     .stopOnIllegalExceptions()
                     .run("getTable", stats.getGetTable().wrap(() -> {
                         try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
                             Table table = client.getTable(databaseName, tableName);
-                            if (table.getTableType().equals(TableType.VIRTUAL_VIEW.name()) && !isPrestoView(table)) {
-                                throw new HiveViewNotSupportedException(new SchemaTableName(databaseName, tableName));
-                            }
                             return Optional.of(table);
                         }
                     }));
@@ -253,11 +247,6 @@ public class ThriftHiveMetastore
         return ThriftMetastoreUtil.getSupportedColumnStatistics(type);
     }
 
-    private static boolean isPrestoView(Table table)
-    {
-        return "true".equals(table.getParameters().get(PRESTO_VIEW_FLAG));
-    }
-
     @Override
     public PartitionStatistics getTableStatistics(String databaseName, String tableName)
     {
@@ -275,7 +264,7 @@ public class ThriftHiveMetastore
     {
         try {
             return retry()
-                    .stopOn(NoSuchObjectException.class, HiveViewNotSupportedException.class)
+                    .stopOn(NoSuchObjectException.class)
                     .stopOnIllegalExceptions()
                     .run("getTableColumnStatistics", stats.getGetTableColumnStatistics().wrap(() -> {
                         // metacat does not implement getTableColumnStatistics and we do not have the column level stats
@@ -373,7 +362,7 @@ public class ThriftHiveMetastore
     {
         try {
             return retry()
-                    .stopOn(NoSuchObjectException.class, HiveViewNotSupportedException.class)
+                    .stopOn(NoSuchObjectException.class)
                     .stopOnIllegalExceptions()
                     .run("getPartitionColumnStatistics", stats.getGetPartitionColumnStatistics().wrap(() -> {
                         // metacat does not implement getPartitionColumnStatistics and we do not have the column level stats
@@ -573,8 +562,15 @@ public class ThriftHiveMetastore
                     .stopOnIllegalExceptions()
                     .run("getAllViews", stats.getGetAllViews().wrap(() -> {
                         try (HiveMetastoreClient client = clientProvider.createMetastoreClient()) {
-                            String filter = HIVE_FILTER_FIELD_PARAMS + PRESTO_VIEW_FLAG + " = \"true\"";
-                            return Optional.of(client.getTableNamesByFilter(databaseName, filter));
+                            List<String> tableNames = client.getAllTables(databaseName);
+                            ImmutableList.Builder<String> views = ImmutableList.builder();
+                            for (String tableName : tableNames) {
+                                Table table = client.getTable(databaseName, tableName);
+                                if (table.getTableType().equals(TableType.VIRTUAL_VIEW.name())) {
+                                    views.add(table.getTableName());
+                                }
+                            }
+                            return Optional.of(views.build());
                         }
                     }));
         }

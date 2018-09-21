@@ -552,11 +552,6 @@ public final class HiveUtil
         throw new VerifyException(format("Unhandled type [%s] for partition: %s", type, partitionName));
     }
 
-    public static boolean isPrestoView(Table table)
-    {
-        return "true".equals(table.getParameters().get(PRESTO_VIEW_FLAG));
-    }
-
     public static String encodeViewData(String data)
     {
         return VIEW_PREFIX + Base64.getEncoder().encodeToString(data.getBytes(UTF_8)) + VIEW_SUFFIX;
