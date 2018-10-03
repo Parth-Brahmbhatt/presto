@@ -902,7 +902,7 @@ public class HiveMetadata
     }
 
     @Override
-    public HiveOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorNewTableLayout> layout)
+    public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorNewTableLayout> layout)
     {
         verifyJvmTimeZone();
 
@@ -1135,7 +1135,7 @@ public class HiveMetadata
     }
 
     @Override
-    public HiveInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
+    public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         verifyJvmTimeZone();
 
@@ -1723,7 +1723,7 @@ public class HiveMetadata
         }
     }
 
-    private static HiveStorageFormat extractHiveStorageFormat(Table table)
+    protected static HiveStorageFormat extractHiveStorageFormat(Table table)
     {
         StorageFormat storageFormat = table.getStorage().getStorageFormat();
         String outputFormat = storageFormat.getOutputFormat();
