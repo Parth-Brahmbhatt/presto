@@ -137,6 +137,7 @@
         <module>presto-proxy</module>
         <module>presto-kudu</module>
         <module>presto-netflix</module>
+        <module>presto-iceberg</module>
     </modules>
 
     <dependencyManagement>
@@ -224,6 +225,12 @@
             <dependency>
                 <groupId>com.facebook.presto</groupId>
                 <artifactId>presto-hive-hadoop2</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.facebook.presto</groupId>
+                <artifactId>presto-iceberg</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
