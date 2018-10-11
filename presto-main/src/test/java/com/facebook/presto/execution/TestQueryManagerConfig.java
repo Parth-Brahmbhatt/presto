@@ -50,6 +50,7 @@ public class TestQueryManagerConfig
                 .setQueryMaxExecutionTime(new Duration(100, TimeUnit.DAYS))
                 .setQueryMaxCpuTime(new Duration(1_000_000_000, TimeUnit.DAYS))
                 .setInitializationRequiredWorkers(1)
+                .setQueueQueriesWithInsufficientWorkers(false)
                 .setInitializationTimeout(new Duration(5, TimeUnit.MINUTES))
                 .setQueryMaxDataSize(new DataSize(100, TERABYTE)));
     }
@@ -77,6 +78,7 @@ public class TestQueryManagerConfig
                 .put("query.max-execution-time", "3h")
                 .put("query.max-cpu-time", "2d")
                 .put("query-manager.initialization-required-workers", "200")
+                .put("query-manager.queue-queries.insufficient-workers", "true")
                 .put("query-manager.initialization-timeout", "1m")
                  .put("query.max-data-size", "10GB")
                 .build();
@@ -101,6 +103,7 @@ public class TestQueryManagerConfig
                 .setQueryMaxExecutionTime(new Duration(3, TimeUnit.HOURS))
                 .setQueryMaxCpuTime(new Duration(2, TimeUnit.DAYS))
                 .setInitializationRequiredWorkers(200)
+                .setQueueQueriesWithInsufficientWorkers(true)
                 .setInitializationTimeout(new Duration(1, TimeUnit.MINUTES))
                  .setQueryMaxDataSize(new DataSize(10, GIGABYTE));
 
