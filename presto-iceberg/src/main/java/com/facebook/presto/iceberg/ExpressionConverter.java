@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.predicate.Domain;
@@ -75,7 +74,7 @@ public class ExpressionConverter
     private ExpressionConverter()
     {}
 
-    public static Expression convert(TupleDomain<HiveColumnHandle> tupleDomain, ConnectorSession session)
+    public static Expression convert(TupleDomain<IcebergColumnHandle> tupleDomain, ConnectorSession session)
     {
         if (tupleDomain.isAll()) {
             return Expressions.alwaysTrue();
@@ -84,10 +83,10 @@ public class ExpressionConverter
             return Expressions.alwaysFalse();
         }
         else {
-            final Map<HiveColumnHandle, Domain> tDomainMap = tupleDomain.getDomains().get();
+            final Map<IcebergColumnHandle, Domain> tDomainMap = tupleDomain.getDomains().get();
             Expression expression = Expressions.alwaysTrue();
-            for (Map.Entry<HiveColumnHandle, Domain> tDomainEntry : tDomainMap.entrySet()) {
-                final HiveColumnHandle key = tDomainEntry.getKey();
+            for (Map.Entry<IcebergColumnHandle, Domain> tDomainEntry : tDomainMap.entrySet()) {
+                final IcebergColumnHandle key = tDomainEntry.getKey();
                 final Domain domain = tDomainEntry.getValue();
                 expression = Expressions.and(expression, convert(key, domain, session));
             }
@@ -95,7 +94,7 @@ public class ExpressionConverter
         }
     }
 
-    private static Expression convert(HiveColumnHandle column, Domain domain, ConnectorSession session)
+    private static Expression convert(IcebergColumnHandle column, Domain domain, ConnectorSession session)
     {
         String columnName = column.getName();
         // By definition of TupleDomain, we should never have a domain with all or none, but this is just future proofing.
@@ -175,9 +174,9 @@ public class ExpressionConverter
         }
     }
 
-    private static Object getValue(HiveColumnHandle columnHandle, Marker marker, ConnectorSession session)
+    private static Object getValue(IcebergColumnHandle columnHandle, Marker marker, ConnectorSession session)
     {
-        final String base = columnHandle.getTypeSignature().getBase();
+        final String base = columnHandle.getType().getTypeSignature().getBase();
         if (base.equals(TIMESTAMP_WITH_TIME_ZONE) || base.equals(TIME_WITH_TIME_ZONE)) {
             return TimeUnit.MILLISECONDS.toNanos(DateTimeEncoding.unpackMillisUtc((Long) marker.getValue()));
         }
@@ -207,7 +206,7 @@ public class ExpressionConverter
         return value;
     }
 
-    public static TupleDomain<HiveColumnHandle> convert(Expression expression, Map<String, HiveColumnHandle> hiveColumnHandleMap, Schema schema, TypeManager typeManager)
+    public static TupleDomain<IcebergColumnHandle> convert(Expression expression, Map<String, IcebergColumnHandle> icebergColumnHandleMap, Schema schema, TypeManager typeManager)
     {
         // this assumes that null allowed would be a separate domainTuple
         final boolean nullAllowed = false;
@@ -218,36 +217,36 @@ public class ExpressionConverter
                 return TupleDomain.none();
             case AND:
                 final And and = (And) expression;
-                TupleDomain<HiveColumnHandle> left = convert(and.left(), hiveColumnHandleMap, schema, typeManager);
-                TupleDomain<HiveColumnHandle> right = convert(and.right(), hiveColumnHandleMap, schema, typeManager);
+                TupleDomain<IcebergColumnHandle> left = convert(and.left(), icebergColumnHandleMap, schema, typeManager);
+                TupleDomain<IcebergColumnHandle> right = convert(and.right(), icebergColumnHandleMap, schema, typeManager);
                 return left.intersect(right);
             case OR:
                 final Or or = (Or) expression;
-                left = convert(or.left(), hiveColumnHandleMap, schema, typeManager);
-                right = convert(or.right(), hiveColumnHandleMap, schema, typeManager);
+                left = convert(or.left(), icebergColumnHandleMap, schema, typeManager);
+                right = convert(or.right(), icebergColumnHandleMap, schema, typeManager);
                 return TupleDomain.columnWiseUnion(left, right);
             case NOT:
-                return convert(((Not) expression).child(), hiveColumnHandleMap, schema, typeManager);
+                return convert(((Not) expression).child(), icebergColumnHandleMap, schema, typeManager);
             case IS_NULL:
-                return convert(expression, hiveColumnHandleMap, schema, typeManager, Domain::onlyNull);
+                return convert(expression, icebergColumnHandleMap, schema, typeManager, Domain::onlyNull);
             case NOT_NULL:
-                return convert(expression, hiveColumnHandleMap, schema, typeManager, Domain::notNull);
+                return convert(expression, icebergColumnHandleMap, schema, typeManager, Domain::notNull);
             case EQ:
-                return convert(expression, schema, typeManager, hiveColumnHandleMap, nullAllowed, Range::equal);
+                return convert(expression, schema, typeManager, icebergColumnHandleMap, nullAllowed, Range::equal);
             case NOT_EQ:
                 Predicate<?, Reference> predicate = (Predicate) expression;
                 int fieldId = getFieldIdByName(predicate.ref(), schema);
                 Type type = TypeConveter.convert(schema.findType(fieldId), typeManager);
                 ValueSet values = ofRanges(Range.lessThan(type, getValue(type, predicate.literal().value())), Range.greaterThan(type, getValue(type, predicate.literal().value()))).complement();
-                return TupleDomain.withColumnDomains(ImmutableMap.of(hiveColumnHandleMap.get(schema.findColumnName(fieldId)), create(values, nullAllowed)));
+                return TupleDomain.withColumnDomains(ImmutableMap.of(icebergColumnHandleMap.get(schema.findColumnName(fieldId)), create(values, nullAllowed)));
             case LT:
-                return convert(expression, schema, typeManager, hiveColumnHandleMap, nullAllowed, Range::lessThan);
+                return convert(expression, schema, typeManager, icebergColumnHandleMap, nullAllowed, Range::lessThan);
             case GT:
-                return convert(expression, schema, typeManager, hiveColumnHandleMap, nullAllowed, Range::greaterThan);
+                return convert(expression, schema, typeManager, icebergColumnHandleMap, nullAllowed, Range::greaterThan);
             case LT_EQ:
-                return convert(expression, schema, typeManager, hiveColumnHandleMap, nullAllowed, Range::lessThanOrEqual);
+                return convert(expression, schema, typeManager, icebergColumnHandleMap, nullAllowed, Range::lessThanOrEqual);
             case GT_EQ:
-                return convert(expression, schema, typeManager, hiveColumnHandleMap, nullAllowed, Range::greaterThanOrEqual);
+                return convert(expression, schema, typeManager, icebergColumnHandleMap, nullAllowed, Range::greaterThanOrEqual);
             case IN: // implemented through chaining EQ operation with OR
             case NOT_IN: // implemented through chaining NOT_EQ operation with OR
                 throw new RuntimeException("IN and NOT_IN expression are not expected as those expressions are represented by chaining EQ/NOT_EQ with OR.");
@@ -259,18 +258,18 @@ public class ExpressionConverter
     private static TupleDomain convert(Expression expression,
             Schema schema,
             TypeManager typeManager,
-            Map<String, HiveColumnHandle> hiveColumnHandleMap,
+            Map<String, IcebergColumnHandle> icebergColumnHandleMap,
             boolean nullAllowed, BiFunction<Type, Object, Range> valueExtractor)
     {
         Predicate<?, Reference> predicate = (Predicate) expression;
         int fieldId = getFieldIdByName(predicate.ref(), schema);
         Type type = TypeConveter.convert(schema.findType(fieldId), typeManager);
         ValueSet values = ofRanges(valueExtractor.apply(type, getValue(type, predicate.literal().value())));
-        return TupleDomain.withColumnDomains(ImmutableMap.of(hiveColumnHandleMap.get(schema.findColumnName(fieldId)), create(values, nullAllowed)));
+        return TupleDomain.withColumnDomains(ImmutableMap.of(icebergColumnHandleMap.get(schema.findColumnName(fieldId)), create(values, nullAllowed)));
     }
 
-    private static TupleDomain<HiveColumnHandle> convert(Expression expression,
-            Map<String, HiveColumnHandle> hiveColumnHandleMap,
+    private static TupleDomain<IcebergColumnHandle> convert(Expression expression,
+            Map<String, IcebergColumnHandle> icebergColumnHandleMap,
             Schema schema,
             TypeManager typeManager,
             Function<Type, Domain> domainExtractor)
@@ -278,7 +277,7 @@ public class ExpressionConverter
         Predicate<?, Reference> predicate = (Predicate) expression;
         int fieldId = getFieldIdByName(predicate.ref(), schema);
         Type type = TypeConveter.convert(schema.findType(fieldId), typeManager);
-        return TupleDomain.withColumnDomains(ImmutableMap.of(hiveColumnHandleMap.get(schema.findColumnName(fieldId)), domainExtractor.apply(type)));
+        return TupleDomain.withColumnDomains(ImmutableMap.of(icebergColumnHandleMap.get(schema.findColumnName(fieldId)), domainExtractor.apply(type)));
     }
 
     private static <R extends Reference> int getFieldIdByName(R reference, Schema schema)

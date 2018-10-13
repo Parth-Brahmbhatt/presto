@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
@@ -25,30 +24,22 @@ import java.util.Map;
 public class IcebergTableLayoutHandle
         implements ConnectorTableLayoutHandle
 {
-    private final String clientId;
     private final String database;
     private final String tableName;
     private final TupleDomain<ColumnHandle> predicates;
-    private final Map<String, HiveColumnHandle> nameToHiveColumnHandle;
+    private final Map<String, IcebergColumnHandle> nameToColumnHandle;
 
     @JsonCreator
-    public IcebergTableLayoutHandle(@JsonProperty("clientId") String clientId,
+    public IcebergTableLayoutHandle(
             @JsonProperty("database") String database,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("predicates") TupleDomain<ColumnHandle> predicates,
-            @JsonProperty("nameToHiveColumnHandle") Map<String, HiveColumnHandle> nameToHiveColumnHandle)
+            @JsonProperty("nameToColumnHandle") Map<String, IcebergColumnHandle> nameToColumnHandle)
     {
-        this.clientId = clientId;
         this.database = database;
         this.tableName = tableName;
         this.predicates = predicates;
-        this.nameToHiveColumnHandle = nameToHiveColumnHandle;
-    }
-
-    @JsonProperty
-    public String getClientId()
-    {
-        return this.clientId;
+        this.nameToColumnHandle = nameToColumnHandle;
     }
 
     @JsonProperty
@@ -70,8 +61,8 @@ public class IcebergTableLayoutHandle
     }
 
     @JsonProperty
-    public Map<String, HiveColumnHandle> getNameToHiveColumnHandle()
+    public Map<String, IcebergColumnHandle> getNameToColumnHandle()
     {
-        return this.nameToHiveColumnHandle;
+        return this.nameToColumnHandle;
     }
 }

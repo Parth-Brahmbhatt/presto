@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePartitioningHandle;
 import com.facebook.presto.hive.HiveTransactionHandle;
 import com.facebook.presto.spi.ColumnHandle;
@@ -44,7 +43,7 @@ public class IcebergHandleResolver
     @Override
     public Class<? extends ColumnHandle> getColumnHandleClass()
     {
-        return HiveColumnHandle.class;
+        return IcebergColumnHandle.class;
     }
 
     @Override

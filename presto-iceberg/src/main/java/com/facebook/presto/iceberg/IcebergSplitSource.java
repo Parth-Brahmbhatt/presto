@@ -14,12 +14,9 @@
 package com.facebook.presto.iceberg;
 
 import com.facebook.presto.hive.HdfsEnvironment;
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.hive.HiveSessionProperties;
-import com.facebook.presto.hive.HiveType;
 import com.facebook.presto.hive.TypeTranslator;
-import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.ConnectorSplitSource;
@@ -61,7 +58,7 @@ public class IcebergSplitSource
     private final String database;
     private final String tableName;
     private final Iterator<FileScanTask> fileScanTaskIterator;
-    private final TupleDomain<HiveColumnHandle> predicates;
+    private final TupleDomain<IcebergColumnHandle> predicates;
     private final ConnectorSession session;
     private final Schema tableSchema;
     private final HdfsEnvironment hdfsEnvironment;
@@ -69,9 +66,18 @@ public class IcebergSplitSource
     private final TypeManager typeRegistry;
     private final HdfsEnvironment.HdfsContext hdfsContext;
     private boolean closed;
-    private Map<String, HiveColumnHandle> columnNameToHiveColumnHandleMap;
+    private Map<String, IcebergColumnHandle> nameToHandleMap;
 
-    public IcebergSplitSource(String database, String tableName, Iterator<FileScanTask> fileScanTaskIterator, TupleDomain<HiveColumnHandle> predicates, ConnectorSession session, Schema schema, HdfsEnvironment hdfsEnvironment, TypeTranslator typeTranslator, TypeManager typeRegistry, Map<String, HiveColumnHandle> columnNameToHiveColumnHandleMap)
+    public IcebergSplitSource(String database,
+            String tableName,
+            Iterator<FileScanTask> fileScanTaskIterator,
+            TupleDomain<IcebergColumnHandle> predicates,
+            ConnectorSession session,
+            Schema schema,
+            HdfsEnvironment hdfsEnvironment,
+            TypeTranslator typeTranslator,
+            TypeManager typeRegistry,
+            Map<String, IcebergColumnHandle> columnNameToHiveColumnHandleMap)
     {
         this.database = database;
         this.tableName = tableName;
@@ -83,7 +89,7 @@ public class IcebergSplitSource
         this.hdfsContext = new HdfsEnvironment.HdfsContext(session, database, tableName);
         this.typeTranslator = typeTranslator;
         this.typeRegistry = typeRegistry;
-        this.columnNameToHiveColumnHandleMap = columnNameToHiveColumnHandleMap;
+        this.nameToHandleMap = columnNameToHiveColumnHandleMap;
     }
 
     @Override
@@ -94,7 +100,7 @@ public class IcebergSplitSource
             FileScanTask scanTask = fileScanTaskIterator.next();
             final List<HivePartitionKey> partitionKeys = getPartitionKeys(scanTask);
             List<HostAddress> addresses = getHostAddresses(scanTask.file().path().toString(), scanTask.start(), scanTask.length());
-            final TupleDomain<HiveColumnHandle> residualExpression = ExpressionConverter.convert(Binder.bind(tableSchema.asStruct(), scanTask.residual()), columnNameToHiveColumnHandleMap, tableSchema, typeRegistry);
+            final TupleDomain<IcebergColumnHandle> residualExpression = ExpressionConverter.convert(Binder.bind(tableSchema.asStruct(), scanTask.residual()), nameToHandleMap, tableSchema, typeRegistry);
             splits.add(new IcebergSplit(this.database,
                     this.tableName,
                     scanTask.file().path().toString(),

@@ -13,7 +13,7 @@
  */
 package com.facebook.presto.iceberg.parquet.writer;
 
-import com.facebook.presto.hive.HiveColumnHandle;
+import com.facebook.presto.iceberg.IcebergColumnHandle;
 import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.Page;
@@ -56,7 +56,7 @@ public class PrestoWriteSupport
         extends WriteSupport<Page>
 {
     // The page is ordered based on the hive column order.
-    private final List<HiveColumnHandle> columns;
+    private final List<IcebergColumnHandle> columns;
     private final MessageType schema;
     private final TypeManager typeManager;
     private final ConnectorSession session;
@@ -65,7 +65,7 @@ public class PrestoWriteSupport
 
     private RecordConsumer recordConsumer;
 
-    public PrestoWriteSupport(List<HiveColumnHandle> columns, MessageType schema, Schema icebergSchema, TypeManager typeManager, ConnectorSession session)
+    public PrestoWriteSupport(List<IcebergColumnHandle> columns, MessageType schema, Schema icebergSchema, TypeManager typeManager, ConnectorSession session)
     {
         this.columns = columns;
         this.schema = schema;
@@ -103,7 +103,7 @@ public class PrestoWriteSupport
         }
     }
 
-    public List<Type> getPrestoType(List<HiveColumnHandle> columns)
+    public List<Type> getPrestoType(List<IcebergColumnHandle> columns)
     {
         return columns.stream().map(col -> convert(icebergSchema.findType(col.getName()), typeManager)).collect(toList());
     }

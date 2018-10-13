@@ -13,8 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveBucketProperty;
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -22,7 +20,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.netflix.iceberg.FileFormat;
 
 import java.util.List;
-import java.util.Optional;
 
 public class IcebergInsertTableHandle
         implements ConnectorInsertTableHandle, ConnectorOutputTableHandle
@@ -30,9 +27,8 @@ public class IcebergInsertTableHandle
     private final String schemaName;
     private final String tableName;
     private final String schemaAsJson;
-    private final List<HiveColumnHandle> inputColumns;
     private final String filePrefix;
-    private final Optional<HiveBucketProperty> bucketProperty;
+    private final List<IcebergColumnHandle> inputColumns;
     private final FileFormat fileFormat;
 
     @JsonProperty("schemaName")
@@ -54,7 +50,7 @@ public class IcebergInsertTableHandle
     }
 
     @JsonProperty("inputColumns")
-    public List<HiveColumnHandle> getInputColumns()
+    public List<IcebergColumnHandle> getInputColumns()
     {
         return inputColumns;
     }
@@ -63,12 +59,6 @@ public class IcebergInsertTableHandle
     public String getFilePrefix()
     {
         return filePrefix;
-    }
-
-    @JsonProperty("bucketProperty")
-    public Optional<HiveBucketProperty> getBucketProperty()
-    {
-        return bucketProperty;
     }
 
     @JsonProperty("fileFormat")
@@ -82,9 +72,8 @@ public class IcebergInsertTableHandle
             @JsonProperty("schemaName") String schemaName,
             @JsonProperty("tableName") String tableName,
             @JsonProperty("schemaAsJson") String schemaAsJson,
-            @JsonProperty("inputColumns") List<HiveColumnHandle> inputColumns,
+            @JsonProperty("inputColumns") List<IcebergColumnHandle> inputColumns,
             @JsonProperty("filePrefix") String filePrefix,
-            @JsonProperty("bucketProperty") Optional<HiveBucketProperty> bucketProperty,
             @JsonProperty("fileFormat") FileFormat fileFormat)
     {
         this.schemaName = schemaName;
@@ -92,7 +81,6 @@ public class IcebergInsertTableHandle
         this.schemaAsJson = schemaAsJson;
         this.inputColumns = inputColumns;
         this.filePrefix = filePrefix;
-        this.bucketProperty = bucketProperty;
         this.fileFormat = fileFormat;
     }
 }

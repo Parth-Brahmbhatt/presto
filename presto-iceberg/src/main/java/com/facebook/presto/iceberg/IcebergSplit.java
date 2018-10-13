@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.spi.ConnectorSplit;
 import com.facebook.presto.spi.HostAddress;
@@ -37,7 +36,7 @@ public class IcebergSplit
     private final long length;
     private final Map<String, Integer> nameToId;
     private final List<HostAddress> addresses;
-    private final TupleDomain<HiveColumnHandle> effectivePredicate;
+    private final TupleDomain<IcebergColumnHandle> effectivePredicate;
     private final List<HivePartitionKey> partitionKeys;
     private final boolean forceLocalScheduling;
 
@@ -50,7 +49,7 @@ public class IcebergSplit
             @JsonProperty("length") long length,
             @JsonProperty("addresses") List<HostAddress> addresses,
             @JsonProperty("nameToId") Map<String, Integer> nameToId,
-            @JsonProperty("effectivePredicate") TupleDomain<HiveColumnHandle> effectivePredicate,
+            @JsonProperty("effectivePredicate") TupleDomain<IcebergColumnHandle> effectivePredicate,
             @JsonProperty("partitionKeys") List<HivePartitionKey> partitionKeys,
             @JsonProperty("forceLocalScheduling") boolean forceLocalScheduling)
     {
@@ -130,7 +129,7 @@ public class IcebergSplit
     }
 
     @JsonProperty
-    public TupleDomain<HiveColumnHandle> getEffectivePredicate()
+    public TupleDomain<IcebergColumnHandle> getEffectivePredicate()
     {
         return effectivePredicate;
     }

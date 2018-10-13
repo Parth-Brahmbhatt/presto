@@ -52,7 +52,7 @@ public class IcebergConnector
     private static final Logger log = Logger.get(IcebergConnector.class);
 
     private final LifeCycleManager lifeCycleManager;
-    private final HiveMetadataFactory metadataFactory;
+    private final IcebergMetadataFactory metadataFactory;
     private final HiveTransactionManager transactionManager;
     private final ConnectorSplitManager splitManager;
     private final ConnectorPageSourceProvider pageSourceProvider;
@@ -73,7 +73,7 @@ public class IcebergConnector
 
     public IcebergConnector(
             LifeCycleManager lifeCycleManager,
-            HiveMetadataFactory metadataFactory,
+            IcebergMetadataFactory metadataFactory,
             HiveTransactionManager transactionManager,
             ConnectorSplitManager splitManager,
             ConnectorPageSourceProvider pageSourceProvider,

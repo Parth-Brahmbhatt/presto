@@ -13,43 +13,32 @@
  */
 package com.facebook.presto.iceberg;
 
+import com.facebook.presto.hive.$internal.com.google.common.collect.ImmutableMap;
 import com.facebook.presto.hive.HdfsEnvironment;
-import com.facebook.presto.hive.HiveColumnHandle;
-import com.facebook.presto.hive.HiveMetadata;
-import com.facebook.presto.hive.HivePartitionManager;
-import com.facebook.presto.hive.HiveTableHandle;
 import com.facebook.presto.hive.HiveWrittenPartitions;
-import com.facebook.presto.hive.LocationService;
-import com.facebook.presto.hive.PartitionUpdate;
-import com.facebook.presto.hive.TableParameterCodec;
-import com.facebook.presto.hive.TypeTranslator;
+import com.facebook.presto.hive.TransactionalMetadata;
 import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.hive.metastore.Table;
-import com.facebook.presto.hive.statistics.HiveStatisticsProvider;
+import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorInsertTableHandle;
 import com.facebook.presto.spi.ConnectorNewTableLayout;
 import com.facebook.presto.spi.ConnectorOutputTableHandle;
-import com.facebook.presto.spi.ConnectorResolvedIndex;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorTableHandle;
 import com.facebook.presto.spi.ConnectorTableLayout;
 import com.facebook.presto.spi.ConnectorTableLayoutHandle;
 import com.facebook.presto.spi.ConnectorTableLayoutResult;
 import com.facebook.presto.spi.ConnectorTableMetadata;
-import com.facebook.presto.spi.ConnectorViewDefinition;
 import com.facebook.presto.spi.Constraint;
-import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
+import com.facebook.presto.spi.TableNotFoundException;
+import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
-import com.facebook.presto.spi.predicate.TupleDomain;
-import com.facebook.presto.spi.security.GrantInfo;
-import com.facebook.presto.spi.security.Privilege;
 import com.facebook.presto.spi.statistics.ComputedStatistics;
 import com.facebook.presto.spi.statistics.TableStatistics;
-import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.collect.ImmutableList;
 import com.netflix.iceberg.AppendFiles;
@@ -65,30 +54,21 @@ import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.joda.time.DateTimeZone;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 
-import static com.facebook.presto.hive.HivePartitionManager.toCompactTupleDomain;
-import static com.facebook.presto.hive.HiveTableProperties.getPartitionedBy;
 import static com.facebook.presto.hive.util.ConfigurationUtils.getInitialConfiguration;
-import static com.facebook.presto.iceberg.IcebergUtil.getColumns;
 import static com.facebook.presto.iceberg.IcebergUtil.getDataPath;
 import static com.facebook.presto.iceberg.IcebergUtil.getFileFormat;
 import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
 import static com.facebook.presto.iceberg.IcebergUtil.getTablePath;
 import static com.facebook.presto.iceberg.IcebergUtil.isIcebergTable;
-import static com.facebook.presto.spi.StandardErrorCode.NOT_SUPPORTED;
-import static com.facebook.presto.spi.predicate.TupleDomain.none;
-import static com.facebook.presto.spi.predicate.TupleDomain.withColumnDomains;
 import static com.facebook.presto.spi.statistics.TableStatistics.EMPTY_STATISTICS;
-import static java.util.Collections.emptyList;
+import static java.util.Collections.EMPTY_LIST;
 import static java.util.Collections.emptyMap;
 import static java.util.Optional.empty;
 import static java.util.function.Function.identity;
@@ -96,8 +76,11 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 public class IcebergMetadata
-        extends HiveMetadata
+        implements ConnectorMetadata, TransactionalMetadata
 {
+    private static final String SCHEMA_PROPERTY = "schema";
+    private static final String PARTITION_SPEC_PROPERTY = "partition_spec";
+    private static final String TABLE_PROPERTIES = "table_properties";
     private final HdfsEnvironment hdfsEnvironment;
     private final TypeManager typeManager;
     private final SemiTransactionalHiveMetastore metastore;
@@ -109,35 +92,10 @@ public class IcebergMetadata
     public IcebergMetadata(String connectorId,
             SemiTransactionalHiveMetastore metastore,
             HdfsEnvironment hdfsEnvironment,
-            HivePartitionManager hivePartitionManager,
-            DateTimeZone timeZone,
-            boolean allowCorruptWritesForTesting,
-            boolean writesToNonManagedTablesEnabled,
             TypeManager typeManager,
-            LocationService locationService,
-            TableParameterCodec tableParameterCodec,
-            JsonCodec<PartitionUpdate> partitionUpdateCodec,
-            TypeTranslator typeTranslator,
-            String prestoVersion,
-            HiveStatisticsProvider hiveStatisticsProvider,
             JsonCodec<CommitTaskData> jsonCodec,
             int domainCompactionThreshold)
     {
-        super(metastore,
-                hdfsEnvironment,
-                hivePartitionManager,
-                timeZone,
-                allowCorruptWritesForTesting,
-                writesToNonManagedTablesEnabled,
-                true, //createsOfNonManagedTablesEnabled
-                typeManager,
-                locationService,
-                tableParameterCodec,
-                partitionUpdateCodec,
-                typeTranslator,
-                prestoVersion,
-                hiveStatisticsProvider,
-                Integer.MAX_VALUE); //maxPartitions
         this.connectorId = connectorId;
         this.hdfsEnvironment = hdfsEnvironment;
         this.typeManager = typeManager;
@@ -149,11 +107,11 @@ public class IcebergMetadata
     @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
-        return super.listSchemaNames(session);
+        return metastore.getAllDatabases();
     }
 
     @Override
-    public HiveTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
+    public IcebergTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
     {
         final Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
         if (table.isPresent()) {
@@ -168,18 +126,19 @@ public class IcebergMetadata
     }
 
     @Override
-    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle table, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns)
+    public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session, ConnectorTableHandle tbl, Constraint<ColumnHandle> constraint, Optional<Set<ColumnHandle>> desiredColumns)
     {
-        IcebergTableHandle tbl = (IcebergTableHandle) table;
-        final Map<String, HiveColumnHandle> nameToHiveColumnHandleMap = desiredColumns
-                .map(cols -> cols.stream().map(col -> HiveColumnHandle.class.cast(col))
-                .collect(toMap(HiveColumnHandle::getName, identity())))
+        IcebergTableHandle tableHandle = (IcebergTableHandle) tbl;
+        final Map<String, IcebergColumnHandle> nameToHiveColumnHandleMap = desiredColumns
+                .map(cols -> cols.stream().map(col -> IcebergColumnHandle.class.cast(col))
+                .collect(toMap(IcebergColumnHandle::getName, identity())))
                 .orElse(emptyMap());
-        final TupleDomain<HiveColumnHandle> domain = toCompactTupleDomain(constraint.getSummary(), domainCompactionThreshold);
-        final TupleDomain<ColumnHandle> columnHandleTupleDomain = domain.getDomains()
-                .map(m -> m.entrySet().stream().collect(toMap((x) -> ColumnHandle.class.cast(x.getKey()), Map.Entry::getValue)))
-                .map(m -> withColumnDomains(m)).orElse(none());
-        final IcebergTableLayoutHandle icebergTableLayoutHandle = new IcebergTableLayoutHandle(this.connectorId, tbl.getSchemaName(), tbl.getTableName(), columnHandleTupleDomain, nameToHiveColumnHandleMap);
+//        final TupleDomain<HiveColumnHandle> domain = toCompactTupleDomain(constraint.getSummary(), domainCompactionThreshold);
+//        final TupleDomain<ColumnHandle> columnHandleTupleDomain = domain.getDomains()
+//                .map(m -> m.entrySet().stream().collect(toMap((x) -> ColumnHandle.class.cast(x.getKey()), Map.Entry::getValue)))
+//                .map(m -> withColumnDomains(m)).orElse(none());
+        // TODO Optimization opportunity if we provide proper IcebergTableLayoutHandle.
+        final IcebergTableLayoutHandle icebergTableLayoutHandle = new IcebergTableLayoutHandle(tableHandle.getSchemaName(), tableHandle.getTableName(), constraint.getSummary(), nameToHiveColumnHandleMap);
         return ImmutableList.of(new ConnectorTableLayoutResult(new ConnectorTableLayout(icebergTableLayoutHandle), constraint.getSummary()));
     }
 
@@ -192,19 +151,24 @@ public class IcebergMetadata
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
     {
-        IcebergTableHandle tbl = (IcebergTableHandle) table;
-        final ConnectorTableMetadata tableMetadata = super.getTableMetadata(session, table);
-        final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, tbl.getSchemaName()), new Path("file:///tmp"));
-        final com.netflix.iceberg.Table icebergTable = getIcebergTable(tbl.getSchemaName(), tbl.getTableName(), configuration);
-        final Map<HiveColumnHandle, Type> columns = IcebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
-        final List<ColumnMetadata> columnMetadatas = columns.entrySet().stream().map(e -> new ColumnMetadata(e.getKey().getName(), e.getValue())).collect(toList());
-        return new ConnectorTableMetadata(tableMetadata.getTable(), columnMetadatas, tableMetadata.getProperties(), tableMetadata.getComment());
+        final IcebergTableHandle tbl = (IcebergTableHandle) table;
+        return getTableMetadata(tbl.getSchemaName(), tbl.getTableName(), session);
     }
 
     @Override
-    public List<SchemaTableName> listTables(ConnectorSession session, String schemaNameOrNull)
+    public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> optionalSchema)
     {
-        return super.listTables(session, schemaNameOrNull);
+        final List<String> schemas = optionalSchema.<List<String>>map(ImmutableList::of)
+                .orElseGet(metastore::getAllDatabases);
+        ImmutableList.Builder<SchemaTableName> tableNames = ImmutableList.builder();
+        for (String schema : schemas) {
+            final Optional<List<String>> allTables = metastore.getAllTables(schema);
+            final List<SchemaTableName> schemaTableNames = allTables
+                    .map(tables -> tables.stream().map(table -> new SchemaTableName(schema, table)).collect(toList()))
+                    .orElse(EMPTY_LIST);
+            tableNames.addAll(schemaTableNames);
+        }
+        return tableNames.build();
     }
 
     @Override
@@ -213,55 +177,33 @@ public class IcebergMetadata
         IcebergTableHandle tbl = (IcebergTableHandle) tableHandle;
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, tbl.getSchemaName()), new Path("file:///tmp"));
         final com.netflix.iceberg.Table icebergTable = getIcebergTable(tbl.getSchemaName(), tbl.getTableName(), configuration);
-        final Map<HiveColumnHandle, Type> columns = IcebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
-        return columns.entrySet().stream().collect(toMap(entry -> entry.getKey().getName(), Map.Entry::getKey));
+        return getColumnMetadatas(icebergTable).stream()
+                .map(cm -> new IcebergColumnHandle(cm.getName(), cm.getType()))
+                .collect(toMap((cm) -> cm.getName(), identity()));
     }
 
     @Override
     public ColumnMetadata getColumnMetadata(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle columnHandle)
     {
-        return super.getColumnMetadata(session, tableHandle, columnHandle);
+        final IcebergColumnHandle column = (IcebergColumnHandle) columnHandle;
+        return new ColumnMetadata(column.getName(), column.getType());
     }
 
     @Override
     public Map<SchemaTableName, List<ColumnMetadata>> listTableColumns(ConnectorSession session, SchemaTablePrefix prefix)
     {
-        return super.listTableColumns(session, prefix);
+        throw new UnsupportedOperationException("Iceberg connector does not support listTableColumns");
     }
 
     /**
      * Get statistics for table for given filtering constraint.
      */
+    @Override
     public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle tableHandle, Constraint<ColumnHandle> constraint)
     {
         return EMPTY_STATISTICS;
     }
 
-    /**
-     * Creates a schema.
-     */
-    public void createSchema(ConnectorSession session, String schemaName, Map<String, Object> properties)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support creating schemas");
-    }
-
-    /**
-     * Drops the specified schema.
-     *
-     * @throws PrestoException with {@code SCHEMA_NOT_EMPTY} if the schema is not empty
-     */
-    public void dropSchema(ConnectorSession session, String schemaName)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support dropping schemas");
-    }
-
-    /**
-     * Renames the specified schema.
-     */
-    public void renameSchema(ConnectorSession session, String source, String target)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support renaming schemas");
-    }
 
     /**
      * Creates a table using the specified table metadata.
@@ -272,12 +214,9 @@ public class IcebergMetadata
         SchemaTableName schemaTableName = tableMetadata.getTable();
         String schemaName = schemaTableName.getSchemaName();
         String tableName = schemaTableName.getTableName();
-        List<String> partitionedBy = getPartitionedBy(tableMetadata.getProperties());
-        final List<ColumnMetadata> columns = tableMetadata.getColumns();
-        Schema schema = new Schema(ColumnConverter.toIceberg(columns));
-        final PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-        partitionedBy.forEach(builder::identity);
-        final PartitionSpec partitionSpec = builder.build();
+
+        final Schema schema = (Schema) tableMetadata.getProperties().get(SCHEMA_PROPERTY);
+        final PartitionSpec partitionSpec = (PartitionSpec) tableMetadata.getProperties().get(PARTITION_SPEC_PROPERTY);
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, schemaName), new Path("file:///tmp"));
         final HiveTables hiveTables = IcebergUtil.getHiveTables(configuration);
         if (ignoreExisting) {
@@ -290,24 +229,9 @@ public class IcebergMetadata
     }
 
     /**
-     * Add the specified column
-     */
-    public void addColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnMetadata column)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support adding columns");
-    }
-
-    /**
-     * Rename the specified column
-     */
-    public void renameColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnHandle source, String target)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support renaming columns");
-    }
-
-    /**
      * Get the physical layout for a new table.
      */
+    @Override
     public Optional<ConnectorNewTableLayout> getNewTableLayout(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
         return empty();
@@ -326,29 +250,28 @@ public class IcebergMetadata
     /**
      * Begin the atomic creation of a table with data.
      */
+    @Override
     public ConnectorOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Optional<ConnectorNewTableLayout> layout)
     {
         SchemaTableName schemaTableName = tableMetadata.getTable();
         String schemaName = schemaTableName.getSchemaName();
         String tableName = schemaTableName.getTableName();
-        List<String> partitionedBy = getPartitionedBy(tableMetadata.getProperties());
-        Schema schema = new Schema(ColumnConverter.toIceberg(tableMetadata.getColumns()));
-        final PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-        partitionedBy.forEach(builder::identity);
-        final PartitionSpec partitionSpec = builder.build();
+        Schema schema = (Schema) tableMetadata.getProperties().get(SCHEMA_PROPERTY);
+        final PartitionSpec partitionSpec = (PartitionSpec) tableMetadata.getProperties().get(PARTITION_SPEC_PROPERTY);
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, schemaName), new Path("file:///tmp"));
         final HiveTables table = IcebergUtil.getHiveTables(configuration);
+        final List<IcebergColumnHandle> columns = tableMetadata.getColumns().stream()
+                .map(cm -> new IcebergColumnHandle(cm.getName(), cm.getType()))
+                .collect(toList());
         //TODO see if there is a way to store this as transaction state.
         this.transaction = table.beginCreate(schema, partitionSpec, schemaName, tableName);
-        final ArrayList<HiveColumnHandle> hiveColumnHandles = new ArrayList(getColumns(schema, partitionSpec, typeManager).keySet());
         return new IcebergInsertTableHandle(
                 schemaName,
                 tableName,
                 SchemaParser.toJson(transaction.table().schema()),
-                hiveColumnHandles,
+                columns,
                 getDataPath(getTablePath(schemaName, tableName)),
-                empty(),
-                FileFormat.PARQUET);
+                FileFormat.PARQUET); //TODO this is a table property
     }
 
     /**
@@ -361,19 +284,9 @@ public class IcebergMetadata
     }
 
     /**
-     * Start a SELECT/UPDATE/INSERT/DELETE query. This notification is triggered after the planning phase completes.
-     */
-    public void beginQuery(ConnectorSession session) {}
-
-    /**
-     * Cleanup after a SELECT/UPDATE/INSERT/DELETE query. This is the very last notification after the query finishes, whether it succeeds or fails.
-     * An exception thrown in this method will not affect the result of the query.
-     */
-    public void cleanupQuery(ConnectorSession session) {}
-
-    /**
      * Begin insert query
      */
+    @Override
     public ConnectorInsertTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         IcebergTableHandle tbl = (IcebergTableHandle) tableHandle;
@@ -381,14 +294,15 @@ public class IcebergMetadata
         final com.netflix.iceberg.Table icebergTable = getIcebergTable(tbl.getSchemaName(), tbl.getTableName(), configuration);
         this.transaction = icebergTable.newTransaction();
         String location = icebergTable.location();
-        final Set<HiveColumnHandle> hiveColumnHandles = IcebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager).keySet();
+        final List<IcebergColumnHandle> columns = getColumnMetadatas(icebergTable).stream()
+                .map(cm -> new IcebergColumnHandle(cm.getName(), cm.getType()))
+                .collect(toList());
         return new IcebergInsertTableHandle(
                 tbl.getSchemaName(),
                 tbl.getTableName(),
                 SchemaParser.toJson(icebergTable.schema()),
-                new ArrayList<>(hiveColumnHandles),
+                columns,
                 getDataPath(location),
-                empty(),
                 getFileFormat(icebergTable));
     }
 
@@ -420,121 +334,50 @@ public class IcebergMetadata
         return Optional.of(new HiveWrittenPartitions(commitTasks.stream().map(ct -> ct.getPartitionPath()).collect(toList())));
     }
 
-    /**
-     * Get the column handle that will generate row IDs for the delete operation.
-     * These IDs will be passed to the {@code deleteRows()} method of the
-     * {@link com.facebook.presto.spi.UpdatablePageSource} that created them.
-     */
-    public ColumnHandle getUpdateRowIdColumnHandle(ConnectorSession session, ConnectorTableHandle tableHandle)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support updates or deletes");
-    }
-
-    /**
-     * Begin delete query
-     */
-    public ConnectorTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle tableHandle)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support deletes");
-    }
-
-    /**
-     * Finish delete query
-     *
-     * @param fragments all fragments returned by {@link com.facebook.presto.spi.UpdatablePageSource#finish()}
-     */
-    public void finishDelete(ConnectorSession session, ConnectorTableHandle tableHandle, Collection<Slice> fragments)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support deletes");
-    }
-
-    /**
-     * Create the specified view. The data for the view is opaque to the connector.
-     */
-    public void createView(ConnectorSession session, SchemaTableName viewName, String viewData, boolean replace)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support creating views");
-    }
-
-    /**
-     * Drop the specified view.
-     */
-    public void dropView(ConnectorSession session, SchemaTableName viewName)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support dropping views");
-    }
-
-    /**
-     * List view names, possibly filtered by schema. An empty list is returned if none match.
-     */
-    public List<SchemaTableName> listViews(ConnectorSession session, String schemaNameOrNull)
-    {
-        return emptyList();
-    }
-
-    /**
-     * Gets the view data for views that match the specified table prefix.
-     */
-    public Map<SchemaTableName, ConnectorViewDefinition> getViews(ConnectorSession session, SchemaTablePrefix prefix)
-    {
-        return emptyMap();
-    }
-
-    /**
-     * @return whether delete without table scan is supported
-     */
-    public boolean supportsMetadataDelete(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorTableLayoutHandle tableLayoutHandle)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support deletes");
-    }
-
-    /**
-     * Delete the provided table layout
-     *
-     * @return number of rows deleted, or null for unknown
-     */
-    public OptionalLong metadataDelete(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorTableLayoutHandle tableLayoutHandle)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support deletes");
-    }
-
-    /**
-     * Try to locate a table index that can lookup results by indexableColumns and provide the requested outputColumns.
-     */
-    public Optional<ConnectorResolvedIndex> resolveIndex(ConnectorSession session, ConnectorTableHandle tableHandle, Set<ColumnHandle> indexableColumns, Set<ColumnHandle> outputColumns, TupleDomain<ColumnHandle> tupleDomain)
-    {
-        return empty();
-    }
-
-    /**
-     * Grants the specified privilege to the specified user on the specified table
-     */
-    public void grantTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support grants");
-    }
-
-    /**
-     * Revokes the specified privilege on the specified table from the specified user
-     */
-    public void revokeTablePrivileges(ConnectorSession session, SchemaTableName tableName, Set<Privilege> privileges, String grantee, boolean grantOption)
-    {
-        throw new PrestoException(NOT_SUPPORTED, "This connector does not support revokes");
-    }
-
-    /**
-     * List the table privileges granted to the specified grantee for the tables that have the specified prefix
-     */
-    public List<GrantInfo> listTablePrivileges(ConnectorSession session, SchemaTablePrefix prefix)
-    {
-        return emptyList();
-    }
-
     @Override
     public Optional<Object> getInfo(ConnectorTableLayoutHandle layoutHandle)
     {
         IcebergTableLayoutHandle tableLayoutHandle = (IcebergTableLayoutHandle) layoutHandle;
         // TODO this is passed to event stream so we may get wrong metrics if this does not have correct info
         return empty();
+    }
+
+    private ConnectorTableMetadata getTableMetadata(String schema, String tableName, ConnectorSession session)
+    {
+        Optional<Table> table = metastore.getTable(schema, tableName);
+        if (!table.isPresent()) {
+            throw new TableNotFoundException(new SchemaTableName(schema, tableName));
+        }
+        final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, schema), new Path("file:///tmp"));
+
+        final com.netflix.iceberg.Table icebergTable = getIcebergTable(schema, tableName, configuration);
+
+        final List<ColumnMetadata> columns = getColumnMetadatas(icebergTable);
+
+        final ImmutableMap.Builder<String, Object> properties = ImmutableMap.builder();
+        properties.put(TABLE_PROPERTIES, icebergTable.properties());
+        properties.put(SCHEMA_PROPERTY, icebergTable.schema());
+        properties.put(PARTITION_SPEC_PROPERTY, icebergTable.spec());
+
+        return new ConnectorTableMetadata(new SchemaTableName(schema, tableName), columns, properties.build(), Optional.empty());
+    }
+
+    private List<ColumnMetadata> getColumnMetadatas(com.netflix.iceberg.Table icebergTable)
+    {
+        return icebergTable.schema().columns().stream()
+                    .map(c -> new ColumnMetadata(c.name(), TypeConveter.convert(c.type(), typeManager)))
+                    .collect(toList());
+    }
+
+    @Override
+    public void commit()
+    {
+        // TODO do we need it?
+    }
+
+    @Override
+    public void rollback()
+    {
+        // TODO do we need it?
     }
 }

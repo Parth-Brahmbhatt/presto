@@ -118,7 +118,7 @@ public class IcebergConnectorFactory
                     .initialize();
 
             LifeCycleManager lifeCycleManager = injector.getInstance(LifeCycleManager.class);
-            HiveMetadataFactory metadataFactory = injector.getInstance(IcebergMetadataFactory.class);
+            IcebergMetadataFactory metadataFactory = injector.getInstance(IcebergMetadataFactory.class);
             HiveTransactionManager transactionManager = injector.getInstance(HiveTransactionManager.class);
             ConnectorSplitManager splitManager = injector.getInstance(ConnectorSplitManager.class);
             ConnectorPageSourceProvider connectorPageSource = injector.getInstance(ConnectorPageSourceProvider.class);

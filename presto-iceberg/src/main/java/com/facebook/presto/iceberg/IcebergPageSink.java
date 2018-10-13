@@ -13,7 +13,6 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HiveWriteUtils;
 import com.facebook.presto.iceberg.parquet.writer.PrestoWriteSupport;
 import com.facebook.presto.spi.ConnectorPageSink;
@@ -58,8 +57,8 @@ public class IcebergPageSink
     private Schema outputSchema;
     private String outputDir;
     private Configuration configuration;
-    private List<HiveColumnHandle> inputColumns;
-    private List<HiveColumnHandle> partitionColumns;
+    private List<IcebergColumnHandle> inputColumns;
+    private List<IcebergColumnHandle> partitionColumns;
     private Map<String, PartitionWriteContext> partitionToWriterContext;
     private Map<String, String> partitionToFile;
     private JsonCodec<CommitTaskData> jsonCodec;
@@ -74,7 +73,7 @@ public class IcebergPageSink
     public IcebergPageSink(Schema outputSchema,
             String outputDir,
             Configuration configuration,
-            List<HiveColumnHandle> inputColumns,
+            List<IcebergColumnHandle> inputColumns,
             TypeManager typeManager,
             JsonCodec<CommitTaskData> jsonCodec,
             ConnectorSession session, FileFormat fileFormat)
@@ -91,7 +90,7 @@ public class IcebergPageSink
         this.fileFormat = fileFormat;
         this.partitionToWriterContext = new HashMap<>();
         this.partitionToFile = new HashMap<>();
-        this.partitionTypes = partitionColumns.stream().map(col -> typeManager.getType(col.getTypeSignature())).collect(toList());
+        this.partitionTypes = partitionColumns.stream().map(col -> typeManager.getType(col.getType().getTypeSignature())).collect(toList());
         this.inputColumns = inputColumns;
     }
 
@@ -189,7 +188,7 @@ public class IcebergPageSink
         // TODO only handles identity columns right now, handle all transforms
         List<String> paths = new ArrayList<>();
         for (int i = 0; i < partitionColumns.size(); i++) {
-            final HiveColumnHandle columnHandle = partitionColumns.get(i);
+            final IcebergColumnHandle columnHandle = partitionColumns.get(i);
             final Type type = partitionTypes.get(i);
             paths.add(columnHandle.getName() + "=" + HiveWriteUtils.getField(type, page.getBlock(columnHandle.getHiveColumnIndex()), rowNum));
         }

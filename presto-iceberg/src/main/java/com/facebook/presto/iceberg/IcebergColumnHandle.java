@@ -13,31 +13,43 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.spi.ConnectorTableHandle;
+import com.facebook.presto.spi.ColumnHandle;
+import com.facebook.presto.spi.type.Type;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public class IcebergTableHandle
-        implements ConnectorTableHandle
+public class IcebergColumnHandle
+        implements ColumnHandle
 {
-    private final String schemaName;
-    private final String tableName;
+    private final String name;
+    private final Type type;
 
-    public IcebergTableHandle(@JsonProperty("schemaName") String schemaName, @JsonProperty("tableName") String tableName)
+    @JsonCreator
+    public IcebergColumnHandle(@JsonProperty("name") String name, @JsonProperty("type") Type type)
     {
-        this.schemaName = schemaName;
-        this.tableName = tableName;
+        this.name = name;
+        this.type = type;
     }
 
     @JsonProperty
-    public String getSchemaName()
+    public String getName()
     {
-        return schemaName;
+        return name;
     }
 
     @JsonProperty
-    public String getTableName()
+    public Type getType()
     {
-        return tableName;
+        return type;
+    }
+
+    @Override
+    public String toString()
+    {
+        return "IcebergColumnHandle{" +
+                "name='" + name + '\'' +
+                ", type=" + type +
+                '}';
     }
 
     @Override
@@ -50,19 +62,19 @@ public class IcebergTableHandle
             return false;
         }
 
-        IcebergTableHandle that = (IcebergTableHandle) o;
+        IcebergColumnHandle that = (IcebergColumnHandle) o;
 
-        if (schemaName != null ? !schemaName.equals(that.schemaName) : that.schemaName != null) {
+        if (name != null ? !name.equals(that.name) : that.name != null) {
             return false;
         }
-        return tableName != null ? tableName.equals(that.tableName) : that.tableName == null;
+        return type != null ? type.equals(that.type) : that.type == null;
     }
 
     @Override
     public int hashCode()
     {
-        int result = schemaName != null ? schemaName.hashCode() : 0;
-        result = 31 * result + (tableName != null ? tableName.hashCode() : 0);
+        int result = name != null ? name.hashCode() : 0;
+        result = 31 * result + (type != null ? type.hashCode() : 0);
         return result;
     }
 }

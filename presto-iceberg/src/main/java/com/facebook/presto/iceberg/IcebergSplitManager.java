@@ -14,7 +14,6 @@
 package com.facebook.presto.iceberg;
 
 import com.facebook.presto.hive.HdfsEnvironment;
-import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.TypeTranslator;
 import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.ConnectorSplitSource;
@@ -59,8 +58,8 @@ public class IcebergSplitManager
     public ConnectorSplitSource getSplits(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorTableLayoutHandle layout, SplitSchedulingStrategy splitSchedulingStrategy)
     {
         final IcebergTableLayoutHandle tbl = (IcebergTableLayoutHandle) layout;
-        final TupleDomain<HiveColumnHandle> predicates = tbl.getPredicates().getDomains()
-                .map(m -> m.entrySet().stream().collect(Collectors.toMap((x) -> HiveColumnHandle.class.cast(x.getKey()), Map.Entry::getValue)))
+        final TupleDomain<IcebergColumnHandle> predicates = tbl.getPredicates().getDomains()
+                .map(m -> m.entrySet().stream().collect(Collectors.toMap((x) -> IcebergColumnHandle.class.cast(x.getKey()), Map.Entry::getValue)))
                 .map(m -> TupleDomain.withColumnDomains(m)).orElse(TupleDomain.none());
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, tbl.getDatabase()), new Path("file:///tmp"));
         final Table icebergTable = getIcebergTable(tbl.getDatabase(), tbl.getTableName(), configuration);
@@ -77,7 +76,7 @@ public class IcebergSplitManager
                 hdfsEnvironment,
                 typeTranslator,
                 typeRegistry,
-                tbl.getNameToHiveColumnHandle());
+                tbl.getNameToColumnHandle());
         return new ClassLoaderSafeConnectorSplitSource(icebergSplitSource, Thread.currentThread().getContextClassLoader());
     }
 }

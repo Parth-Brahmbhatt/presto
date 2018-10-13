@@ -25,6 +25,7 @@ import com.facebook.presto.iceberg.parquet.memory.AggregatedMemoryContext;
 import com.facebook.presto.iceberg.parquet.predicate.ParquetPredicate;
 import com.facebook.presto.iceberg.parquet.reader.ParquetMetadataReader;
 import com.facebook.presto.iceberg.parquet.reader.ParquetReader;
+import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ColumnHandle;
 import com.facebook.presto.spi.ConnectorPageSource;
 import com.facebook.presto.spi.ConnectorSession;
@@ -55,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Properties;
+import java.util.Set;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
@@ -68,10 +70,8 @@ import static com.facebook.presto.iceberg.parquet.predicate.ParquetPredicateUtil
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 
-/**
- * Created by parth on 2/23/18.
- */
 public class IcebergPageSourceProvider
         implements ConnectorPageSourceProvider
 {
@@ -92,17 +92,20 @@ public class IcebergPageSourceProvider
     }
 
     @Override
-    public ConnectorPageSource createPageSource(ConnectorTransactionHandle transactionHandle, ConnectorSession session, ConnectorSplit split, List<ColumnHandle> columns)
+    public ConnectorPageSource createPageSource(ConnectorTransactionHandle transactionHandle,
+            ConnectorSession session,
+            ConnectorSplit split,
+            List<ColumnHandle> columns)
     {
         IcebergSplit icebergSplit = (IcebergSplit) split;
         final Path path = new Path(icebergSplit.getPath());
         final long start = icebergSplit.getStart();
         final long length = icebergSplit.getLength();
-        List<HiveColumnHandle> hiveColumns = columns.stream()
-                .map(HiveColumnHandle.class::cast)
+        List<IcebergColumnHandle> hiveColumns = columns.stream()
+                .map(IcebergColumnHandle.class::cast)
                 .collect(toList());
         return createParquetPageSource(hdfsEnvironment,
-                "user", //TODO propagate user
+                session.getUser(),
                 getInitialConfiguration(),
                 path,
                 start,
@@ -116,19 +119,19 @@ public class IcebergPageSourceProvider
                 ((IcebergSplit) split).getPartitionKeys());
     }
 
-    public static ConnectorPageSource createParquetPageSource(
+    public ConnectorPageSource createParquetPageSource(
             HdfsEnvironment hdfsEnvironment,
             String user,
             Configuration configuration,
             Path path,
             long start,
             long length,
-            List<HiveColumnHandle> columns,
+            List<IcebergColumnHandle> columns,
             Map<String, Integer> icebergNameToId,
             boolean useParquetColumnNames,
             TypeManager typeManager,
             boolean predicatePushdownEnabled,
-            TupleDomain<HiveColumnHandle> effectivePredicate,
+            TupleDomain<IcebergColumnHandle> effectivePredicate,
             List<HivePartitionKey> partitionKeys)
     {
         AggregatedMemoryContext systemMemoryContext = new AggregatedMemoryContext();
@@ -146,10 +149,12 @@ public class IcebergPageSourceProvider
             // use that here to map from iceberg schema column name to ID, lookup parquet column with same ID and all of its children
             // and use the index of all those columns as requested schema.
 
-            final List<HiveColumnHandle> parquetColumns = convertToParquetNames(columns, icebergNameToId, fileSchema);
+            final List<IcebergColumnHandle> parquetColumns = convertToParquetNames(columns, icebergNameToId, fileSchema);
+            // assumes the partition column name based lookup is fine.
+            final Set<String> partitionColumns = partitionKeys.stream().map(pk -> pk.getName()).collect(toSet());
             List<org.apache.parquet.schema.Type> fields = parquetColumns.stream()
-                    .filter(column -> column.getColumnType() == REGULAR)
-                    .map(column -> getParquetType(column, fileSchema, true)) // we always use parquet column names in case of iceberg.
+                    .filter(column -> !partitionColumns.contains(column.getName())) // I don't like that we treat identity columns differently.
+                    .map(column -> fileSchema.getType(column.getName())) // we always use parquet column names in case of iceberg.
                     .filter(Objects::nonNull)
                     .collect(toList());
 
@@ -193,7 +198,7 @@ public class IcebergPageSourceProvider
                             requestedSchema,
                             length,
                             new Properties(), // unused.
-                            parquetColumns.stream().filter(col -> col.getColumnType().equals(REGULAR)).collect(toList()),
+                            parquetColumns.stream().filter(c -> !parquetColumns.contains(c.getName())).collect(toList()),
                             effectivePredicate,
                             typeManager,
                             useParquetColumnNames,
@@ -227,15 +232,15 @@ public class IcebergPageSourceProvider
      * @param parquetSchema
      * @return columns with iceberg column names replaced with parquet column names.
      */
-    private static List<HiveColumnHandle> convertToParquetNames(List<HiveColumnHandle> columns, Map<String, Integer> icebergNameToId, MessageType parquetSchema)
+    private List<IcebergColumnHandle> convertToParquetNames(List<IcebergColumnHandle> columns, Map<String, Integer> icebergNameToId, MessageType parquetSchema)
     {
         final List<Type> fields = parquetSchema.getFields();
-        final List<HiveColumnHandle> result = new ArrayList<>();
-        for (HiveColumnHandle column : columns) {
+        final List<IcebergColumnHandle> result = new ArrayList<>();
+        for (IcebergColumnHandle column : columns) {
             Integer parquetId = icebergNameToId.get(column.getName());
             //we default to parquet name when no match is found to support migrated tables, this should be controlled by a config.
             final String parquetName = fields.stream().filter(f -> f.getId() != null && f.getId().intValue() == parquetId).map(m -> m.getName()).findFirst().orElse(column.getName());
-            result.add(new HiveColumnHandle(parquetName, column.getHiveType(), column.getTypeSignature(), column.getHiveColumnIndex(), column.getColumnType(), column.getComment()));
+            result.add(new IcebergColumnHandle(parquetName, column.getType()));
         }
         return result;
     }

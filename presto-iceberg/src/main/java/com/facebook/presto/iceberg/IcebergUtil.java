@@ -13,38 +13,20 @@
  */
 package com.facebook.presto.iceberg;
 
-import com.facebook.presto.hive.HiveColumnHandle;
-import com.facebook.presto.hive.HiveStorageFormat;
-import com.facebook.presto.hive.HiveType;
-import com.facebook.presto.hive.HiveTypeTranslator;
-import com.facebook.presto.hive.TypeTranslator;
-import com.facebook.presto.iceberg.type.TypeConveter;
-import com.facebook.presto.spi.type.TimestampType;
-import com.facebook.presto.spi.type.TypeManager;
-import com.google.common.collect.ImmutableMap;
 import com.netflix.iceberg.FileFormat;
 import com.netflix.iceberg.PartitionField;
 import com.netflix.iceberg.PartitionSpec;
-import com.netflix.iceberg.Schema;
 import com.netflix.iceberg.Table;
 import com.netflix.iceberg.hive.HiveTables;
-import com.netflix.iceberg.types.Type;
-import com.netflix.iceberg.types.Types;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.util.ConfigurationUtils.getInitialConfiguration;
-import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 
@@ -53,8 +35,6 @@ class IcebergUtil
     public static final String ICEBERG_PROPERTY_NAME = "table_type";
     public static final String ICEBERG_PROPERTY_VALUE = "iceberg";
     public static final String HIVE_WAREHOUSE_DIR = "metastore.warehouse.dir";
-    public static final String METASTORE_URI = "metastore.thrift.uris";
-    private static final TypeTranslator hiveTypeTranslator = new HiveTypeTranslator();
     private static final String PATH_SEPERATOR = "/";
     public static final String DATA_DIR_NAME = "data";
 
@@ -75,41 +55,6 @@ class IcebergUtil
     public static HiveTables getHiveTables(Configuration configuration)
     {
         return new HiveTables(configuration);
-    }
-
-    public static final Map<HiveColumnHandle, com.facebook.presto.spi.type.Type> getColumns(Schema schema, PartitionSpec spec, TypeManager typeManager)
-    {
-        final List<Types.NestedField> columns = schema.columns();
-        int columnIndex = 0;
-        ImmutableMap.Builder builder = ImmutableMap.builder();
-        final List<PartitionField> partitionFields = getIdentityPartitions(spec);
-        final Map<String, PartitionField> partitionColumnNames = partitionFields.stream().collect(Collectors.toMap(PartitionField::name, Function.identity()));
-        // Iceberg may or may not store identity columns in data file and the identity transformations have the same name as data column.
-        // So we remove the identity columns from the set of regular columns which does not work with some of presto validation.
-
-        for (Types.NestedField column : columns) {
-            Type type = column.type();
-            HiveColumnHandle.ColumnType columnType = REGULAR;
-            if (partitionColumnNames.containsKey(column.name())) {
-                final PartitionField partitionField = partitionColumnNames.get(column.name());
-                Type sourceType = schema.findType(partitionField.sourceId());
-                type = partitionField.transform().getResultType(sourceType);
-                columnType = PARTITION_KEY;
-            }
-            final com.facebook.presto.spi.type.Type prestoType = TypeConveter.convert(type, typeManager);
-            final HiveType hiveType = HiveType.toHiveType(hiveTypeTranslator, coerceForHive(prestoType));
-            final HiveColumnHandle columnHandle = new HiveColumnHandle(column.name(), hiveType, prestoType.getTypeSignature(), columnIndex++, columnType, Optional.empty());
-            builder.put(columnHandle, prestoType);
-        }
-        return builder.build();
-    }
-
-    public static final com.facebook.presto.spi.type.Type coerceForHive(com.facebook.presto.spi.type.Type prestoType)
-    {
-        if (prestoType.equals(TIMESTAMP_WITH_TIME_ZONE)) {
-            return TimestampType.TIMESTAMP;
-        }
-        return prestoType;
     }
 
     public static final List<PartitionField> getIdentityPartitions(PartitionSpec partitionSpec)
@@ -135,19 +80,5 @@ class IcebergUtil
         return FileFormat.valueOf(table.properties()
                 .getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT)
                 .toUpperCase(Locale.ENGLISH));
-    }
-
-    public static final FileFormat toIcebergStorageFormat(HiveStorageFormat hiveStorageFormat)
-    {
-        switch (hiveStorageFormat) {
-            case PARQUET:
-                return FileFormat.PARQUET;
-            case ORC:
-                return FileFormat.ORC;
-            case AVRO:
-                return FileFormat.AVRO;
-            default:
-                throw new UnsupportedOperationException("Iceberg tables only support " + Arrays.toString(FileFormat.values()));
-        }
     }
 }
