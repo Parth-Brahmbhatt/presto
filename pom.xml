@@ -39,8 +39,13 @@
             <name>Netflix Artifactory</name>
             <url>http://artifacts.netflix.com/nfrepo-everything-pom</url>
         </repository>
-    </repositories>
 
+        <repository>
+            <id>libs-releases-local</id>
+            <name>Netflix Artifactory</name>
+            <url>https://artifacts.netflix.com/libs-releases-local</url>
+        </repository>
+    </repositories>
 
     <properties>
         <air.main.basedir>${project.basedir}</air.main.basedir>
@@ -69,7 +74,7 @@
         <air.test.parallel>methods</air.test.parallel>
         <air.test.thread-count>2</air.test.thread-count>
         <air.test.jvmsize>2g</air.test.jvmsize>
-
+        <air.check.skip-duplicate-finder>true</air.check.skip-duplicate-finder>
         <air.javadoc.lint>-missing</air.javadoc.lint>
     </properties>
 
@@ -221,7 +226,6 @@
                 <version>${project.version}</version>
                 <type>zip</type>
             </dependency>
-
             <dependency>
                 <groupId>com.facebook.presto</groupId>
                 <artifactId>presto-local-file</artifactId>
@@ -1075,7 +1079,6 @@
                 <artifactId>javassist</artifactId>
                 <version>3.22.0-GA</version>
             </dependency>
-
             <dependency>
                 <groupId>com.jayway.jsonpath</groupId>
                 <artifactId>json-path</artifactId>
@@ -1192,6 +1195,25 @@
                                 <resolvedVersion>${dep.jackson.version}</resolvedVersion>
                             </exception>
                         </exceptions>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>com.ning.maven.plugins</groupId>
+                    <artifactId>maven-duplicate-finder-plugin</artifactId>
+                    <configuration>
+                        <useDefaultResourceIgnoreList>true</useDefaultResourceIgnoreList>
+                        <ignoredDependencies>
+                            <!--These two dependencies are pulled in by data-utils artifact. Unfortunately, it isn't easy to fix them
+                            in the data-utils library. So we have to resort to ignoring them for duplicate finder to pass. -->
+                            <ignoredDependency>
+                                <groupId>org.scala-lang</groupId>
+                                <artifactId>scala-compiler</artifactId>
+                            </ignoredDependency>
+                            <ignoredDependency>
+                                <groupId>com.github.pureconfig</groupId>
+                                <artifactId>pureconfig-macros_2.11</artifactId>
+                            </ignoredDependency>
+                        </ignoredDependencies>
                     </configuration>
                 </plugin>
 

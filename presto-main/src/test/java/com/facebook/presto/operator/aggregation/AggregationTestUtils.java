@@ -19,6 +19,7 @@ import com.facebook.presto.spi.Page;
 import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.block.RunLengthEncodedBlock;
+import com.facebook.presto.spi.type.SqlVarbinary;
 import com.google.common.primitives.Ints;
 import org.apache.commons.math3.util.Precision;
 
@@ -52,6 +53,9 @@ public final class AggregationTestUtils
         }
         else if (expectedValue instanceof Float && !expectedValue.equals(Float.NaN)) {
             equalAssertion = (actual, expected) -> Precision.equals((float) actual, (float) expected, 1e-10f);
+        }
+        else if (expectedValue instanceof SqlVarbinary && !expectedValue.equals(null)) {
+            equalAssertion = (actual, expected) -> actual.equals((SqlVarbinary) expected);
         }
         else {
             equalAssertion = Objects::equals;

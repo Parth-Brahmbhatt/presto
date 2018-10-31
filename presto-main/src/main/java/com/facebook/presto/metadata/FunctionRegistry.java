@@ -45,6 +45,15 @@ import com.facebook.presto.operator.aggregation.IntervalYearToMonthSumAggregatio
 import com.facebook.presto.operator.aggregation.LongSumAggregation;
 import com.facebook.presto.operator.aggregation.MaxDataSizeForStats;
 import com.facebook.presto.operator.aggregation.MergeHyperLogLogAggregation;
+import com.facebook.presto.operator.aggregation.NetflixBuildSketchBytesAggregations;
+import com.facebook.presto.operator.aggregation.NetflixBuildSketchStringAggregations;
+import com.facebook.presto.operator.aggregation.NetflixCombineSketchBytesAggregations;
+import com.facebook.presto.operator.aggregation.NetflixCombineSketchStringAggregations;
+import com.facebook.presto.operator.aggregation.NetflixQueryApproxPercentileAggregations;
+import com.facebook.presto.operator.aggregation.NetflixQueryApproxPercentileSketchBytesAggregations;
+import com.facebook.presto.operator.aggregation.NetflixQueryApproxPercentileSketchStringAggregations;
+import com.facebook.presto.operator.aggregation.NetflixQueryCDFAggregations;
+import com.facebook.presto.operator.aggregation.NetflixQueryHistogramAsJSONFromSketchStringAggregations;
 import com.facebook.presto.operator.aggregation.RealAverageAggregation;
 import com.facebook.presto.operator.aggregation.RealCorrelationAggregation;
 import com.facebook.presto.operator.aggregation.RealCovarianceAggregation;
@@ -431,6 +440,15 @@ public class FunctionRegistry
                 .aggregates(ApproximateDoublePercentileArrayAggregations.class)
                 .aggregates(ApproximateRealPercentileAggregations.class)
                 .aggregates(ApproximateRealPercentileArrayAggregations.class)
+                .aggregates(NetflixQueryApproxPercentileAggregations.class)
+                .aggregates(NetflixBuildSketchBytesAggregations.class)
+                .aggregates(NetflixBuildSketchStringAggregations.class)
+                .aggregates(NetflixCombineSketchBytesAggregations.class)
+                .aggregates(NetflixCombineSketchStringAggregations.class)
+                .aggregates(NetflixQueryApproxPercentileSketchBytesAggregations.class)
+                .aggregates(NetflixQueryApproxPercentileSketchStringAggregations.class)
+                .aggregates(NetflixQueryCDFAggregations.class)
+                .aggregates(NetflixQueryHistogramAsJSONFromSketchStringAggregations.class)
                 .aggregates(CountIfAggregation.class)
                 .aggregates(BooleanAndAggregation.class)
                 .aggregates(BooleanOrAggregation.class)
