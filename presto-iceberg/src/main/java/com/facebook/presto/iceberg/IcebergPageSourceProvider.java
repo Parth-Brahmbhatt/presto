@@ -17,12 +17,12 @@ import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
-import com.facebook.presto.hive.HiveHdfsConfiguration;
 import com.facebook.presto.hive.HivePageSource;
 import com.facebook.presto.hive.HivePageSourceProvider;
 import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.hive.parquet.ParquetPageSource;
 import com.facebook.presto.memory.context.AggregatedMemoryContext;
+import com.facebook.presto.parquet.ParquetCorruptionException;
 import com.facebook.presto.parquet.ParquetDataSource;
 import com.facebook.presto.parquet.RichColumnDescriptor;
 import com.facebook.presto.parquet.predicate.Predicate;
@@ -61,9 +61,11 @@ import java.util.OptionalInt;
 import java.util.Properties;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
+import static com.facebook.presto.hive.HiveErrorCode.HIVE_BAD_DATA;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_MISSING_DATA;
 import static com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping.buildColumnMappings;
+import static com.facebook.presto.hive.HiveSessionProperties.isFailOnCorruptedParquetStatistics;
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetTupleDomain;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetType;
@@ -122,7 +124,8 @@ public class IcebergPageSourceProvider
                 typeManager,
                 icebergSplit.getEffectivePredicate(),
                 ((IcebergSplit) split).getPartitionKeys(),
-                fileFormatDataSourceStats);
+                fileFormatDataSourceStats,
+                isFailOnCorruptedParquetStatistics(session));
     }
 
     public static ConnectorPageSource createParquetPageSource(
@@ -138,7 +141,8 @@ public class IcebergPageSourceProvider
             TypeManager typeManager,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             List<HivePartitionKey> partitionKeys,
-            FileFormatDataSourceStats fileFormatDataSourceStats)
+            FileFormatDataSourceStats fileFormatDataSourceStats,
+            boolean failOnCorruptedParquetStatistics)
     {
         AggregatedMemoryContext systemMemoryContext = AggregatedMemoryContext.newSimpleAggregatedMemoryContext();
 
@@ -178,7 +182,14 @@ public class IcebergPageSourceProvider
             Predicate parquetPredicate = buildPredicate(requestedSchema, parquetTupleDomain, descriptorsByPath);
             final ParquetDataSource finalDataSource = dataSource;
             blocks = blocks.stream()
-                    .filter(block -> predicateMatches(parquetPredicate, block, finalDataSource, descriptorsByPath, parquetTupleDomain))
+                    .filter(block -> {
+                        try {
+                            return predicateMatches(parquetPredicate, block, finalDataSource, descriptorsByPath, parquetTupleDomain, failOnCorruptedParquetStatistics);
+                        }
+                        catch (ParquetCorruptionException e) {
+                            throw new PrestoException(HIVE_BAD_DATA, e);
+                        }
+                    })
                     .collect(toList());
             MessageColumnIO messageColumnIO = getColumnIO(fileSchema, requestedSchema);
             ParquetReader parquetReader = new ParquetReader(
@@ -212,6 +223,7 @@ public class IcebergPageSourceProvider
             }
             catch (IOException ignored) {
             }
+
             if (e instanceof PrestoException) {
                 throw (PrestoException) e;
             }

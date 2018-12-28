@@ -14,6 +14,7 @@
 
     <properties>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
+        <parquet.version>1.10.0</parquet.version>
     </properties>
 
     <dependencies>
@@ -35,6 +36,34 @@
         <dependency>
             <groupId>com.facebook.presto</groupId>
             <artifactId>presto-parquet</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
+            <version>${parquet.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+            <version>${parquet.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.xerial.snappy</groupId>
+                    <artifactId>snappy-java</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -320,6 +349,16 @@
                             </excludes>
                         </configuration>
                     </plugin>
+                    <plugin>
+                        <groupId>org.basepom.maven</groupId>
+                        <artifactId>duplicate-finder-maven-plugin</artifactId>
+                        <configuration>
+                            <ignoredResourcePatterns>
+                                <ignoredResourcePattern>parquet.thrift</ignoredResourcePattern>
+                                <ignoredResourcePattern>about.html</ignoredResourcePattern>
+                            </ignoredResourcePatterns>
+                        </configuration>
+                    </plugin>
                 </plugins>
             </build>
         </profile>
@@ -334,6 +373,16 @@
                             <includes>
                                 <include>**/TestHiveClientGlueMetastore.java</include>
                             </includes>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.basepom.maven</groupId>
+                        <artifactId>duplicate-finder-maven-plugin</artifactId>
+                        <configuration>
+                            <ignoredResourcePatterns>
+                                <ignoredResourcePattern>parquet.thrift</ignoredResourcePattern>
+                                <ignoredResourcePattern>about.html</ignoredResourcePattern>
+                            </ignoredResourcePatterns>
                         </configuration>
                     </plugin>
                 </plugins>

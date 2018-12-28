@@ -75,7 +75,6 @@ import static com.netflix.iceberg.types.Types.NestedField.required;
 import static java.util.Collections.EMPTY_LIST;
 import static java.util.Collections.emptyMap;
 import static java.util.Objects.requireNonNull;
-import static java.util.Optional.empty;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
@@ -242,7 +241,7 @@ public class IcebergMetadata
     @Override
     public Optional<ConnectorNewTableLayout> getNewTableLayout(ConnectorSession session, ConnectorTableMetadata tableMetadata)
     {
-        return empty();
+        return Optional.empty();
     }
 
     /**
@@ -252,7 +251,7 @@ public class IcebergMetadata
     public Optional<ConnectorNewTableLayout> getInsertLayout(ConnectorSession session, ConnectorTableHandle tableHandle)
     {
         // TODO We need to provide proper partitioning handle and columns here, we need it for bucketing support but for non bucketed tables it is not required.
-        return empty();
+        return Optional.empty();
     }
 
     /**
@@ -357,7 +356,7 @@ public class IcebergMetadata
     public Optional<Object> getInfo(ConnectorTableLayoutHandle layoutHandle)
     {
         // TODO this is passed to event stream so we may get wrong metrics if this does not have correct info
-        return empty();
+        return Optional.empty();
     }
 
     @Override

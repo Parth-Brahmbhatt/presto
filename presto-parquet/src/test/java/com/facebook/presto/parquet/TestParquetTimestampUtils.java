@@ -14,10 +14,12 @@
 package com.facebook.presto.parquet;
 
 import com.facebook.presto.spi.PrestoException;
+import org.apache.hadoop.hive.ql.io.parquet.timestamp.NanoTime;
 import org.apache.hadoop.hive.ql.io.parquet.timestamp.NanoTimeUtils;
+import org.apache.parquet.io.api.Binary;
 import org.testng.annotations.Test;
-import parquet.io.api.Binary;
 
+import java.nio.ByteBuffer;
 import java.sql.Timestamp;
 
 import static com.facebook.presto.parquet.ParquetTimestampUtils.getTimestampMillis;
@@ -50,8 +52,9 @@ public class TestParquetTimestampUtils
     private static void assertTimestampCorrect(String timestampString)
     {
         Timestamp timestamp = Timestamp.valueOf(timestampString);
-        Binary timestampBytes = NanoTimeUtils.getNanoTime(timestamp, false).toBinary();
-        long decodedTimestampMillis = getTimestampMillis(timestampBytes);
+        NanoTime nanoTime = NanoTimeUtils.getNanoTime(timestamp, false);
+        final ByteBuffer buffer = ByteBuffer.wrap(nanoTime.toBinary().getBytes());
+        long decodedTimestampMillis = getTimestampMillis(Binary.fromConstantByteBuffer(buffer));
         assertEquals(decodedTimestampMillis, timestamp.getTime());
     }
 }
