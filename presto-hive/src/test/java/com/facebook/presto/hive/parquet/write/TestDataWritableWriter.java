@@ -16,6 +16,7 @@ package com.facebook.presto.hive.parquet.write;
 import io.airlift.log.Logger;
 import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe;
+import org.apache.hadoop.hive.ql.io.parquet.timestamp.NanoTime;
 import org.apache.hadoop.hive.ql.io.parquet.timestamp.NanoTimeUtils;
 import org.apache.hadoop.hive.ql.io.parquet.write.DataWritableWriter;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
@@ -46,6 +47,8 @@ import parquet.schema.GroupType;
 import parquet.schema.OriginalType;
 import parquet.schema.Type;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.util.List;
@@ -368,7 +371,13 @@ public class TestDataWritableWriter
                 break;
             case TIMESTAMP:
                 Timestamp ts = ((TimestampObjectInspector) inspector).getPrimitiveJavaObject(value);
-                recordConsumer.addBinary(NanoTimeUtils.getNanoTime(ts, false).toBinary());
+                final NanoTime nanoTime = NanoTimeUtils.getNanoTime(ts, false);
+                ByteBuffer buf = ByteBuffer.allocate(12);
+                buf.order(ByteOrder.LITTLE_ENDIAN);
+                buf.putLong(nanoTime.getTimeOfDayNanos());
+                buf.putInt(nanoTime.getJulianDay());
+                buf.flip();
+                recordConsumer.addBinary(Binary.fromByteBuffer(buf));
                 break;
             case DECIMAL:
                 HiveDecimal vDecimal = ((HiveDecimal) inspector.getPrimitiveJavaObject(value));
