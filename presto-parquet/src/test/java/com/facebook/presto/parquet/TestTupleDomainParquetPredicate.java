@@ -21,17 +21,17 @@ import com.facebook.presto.spi.predicate.ValueSet;
 import com.facebook.presto.spi.type.VarcharType;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
+import org.apache.parquet.column.ColumnDescriptor;
+import org.apache.parquet.column.statistics.BinaryStatistics;
+import org.apache.parquet.column.statistics.BooleanStatistics;
+import org.apache.parquet.column.statistics.DoubleStatistics;
+import org.apache.parquet.column.statistics.FloatStatistics;
+import org.apache.parquet.column.statistics.IntStatistics;
+import org.apache.parquet.column.statistics.LongStatistics;
+import org.apache.parquet.column.statistics.Statistics;
+import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.schema.PrimitiveType;
 import org.testng.annotations.Test;
-import parquet.column.ColumnDescriptor;
-import parquet.column.statistics.BinaryStatistics;
-import parquet.column.statistics.BooleanStatistics;
-import parquet.column.statistics.DoubleStatistics;
-import parquet.column.statistics.FloatStatistics;
-import parquet.column.statistics.IntStatistics;
-import parquet.column.statistics.LongStatistics;
-import parquet.column.statistics.Statistics;
-import parquet.io.api.Binary;
-import parquet.schema.PrimitiveType;
 
 import java.util.Map;
 import java.util.Optional;
@@ -59,11 +59,11 @@ import static io.airlift.slice.Slices.utf8Slice;
 import static java.lang.Float.floatToRawIntBits;
 import static java.util.Collections.singletonList;
 import static java.util.Collections.singletonMap;
+import static org.apache.parquet.column.statistics.Statistics.createStats;
+import static org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY;
+import static org.apache.parquet.schema.Type.Repetition.OPTIONAL;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertTrue;
-import static parquet.column.statistics.Statistics.getStatsBasedOnType;
-import static parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY;
-import static parquet.schema.Type.Repetition.OPTIONAL;
 
 public class TestTupleDomainParquetPredicate
 {
@@ -209,7 +209,7 @@ public class TestTupleDomainParquetPredicate
         RichColumnDescriptor column = new RichColumnDescriptor(columnDescriptor, new PrimitiveType(OPTIONAL, BINARY, "Test column"));
         TupleDomain<ColumnDescriptor> effectivePredicate = getEffectivePredicate(column, createVarcharType(255), utf8Slice(value));
         TupleDomainParquetPredicate parquetPredicate = new TupleDomainParquetPredicate(effectivePredicate, singletonList(column));
-        Statistics stats = getStatsBasedOnType(column.getType());
+        Statistics stats = createStats(column.getPrimitiveType());
         stats.setNumNulls(1L);
         stats.setMinMaxFromBytes(value.getBytes(), value.getBytes());
         assertTrue(parquetPredicate.matches(2, singletonMap(column, stats)));

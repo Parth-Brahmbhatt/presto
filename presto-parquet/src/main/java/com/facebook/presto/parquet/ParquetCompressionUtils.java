@@ -19,7 +19,7 @@ import io.airlift.compress.snappy.SnappyDecompressor;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.Slice;
 import org.apache.hadoop.io.compress.BrotliCodec;
-import parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;

@@ -14,9 +14,11 @@
 package com.facebook.presto.parquet.dictionary;
 
 import com.facebook.presto.parquet.DictionaryPage;
-import parquet.column.values.plain.PlainValuesReader.IntegerPlainValuesReader;
+import org.apache.parquet.bytes.ByteBufferInputStream;
+import org.apache.parquet.column.values.plain.PlainValuesReader.IntegerPlainValuesReader;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 
@@ -31,7 +33,8 @@ public class IntegerDictionary
         super(dictionaryPage.getEncoding());
         content = new int[dictionaryPage.getDictionarySize()];
         IntegerPlainValuesReader intReader = new IntegerPlainValuesReader();
-        intReader.initFromPage(dictionaryPage.getDictionarySize(), dictionaryPage.getSlice().getBytes(), 0);
+        final ByteBufferInputStream in = ByteBufferInputStream.wrap(ByteBuffer.wrap(dictionaryPage.getSlice().getBytes()));
+        intReader.initFromPage(dictionaryPage.getDictionarySize(), in);
         for (int i = 0; i < content.length; i++) {
             content[i] = intReader.readInteger();
         }
