@@ -287,6 +287,8 @@ public final class MetadataReader
                 return OriginalType.JSON;
             case BSON:
                 return OriginalType.BSON;
+            case TIMESTAMP_MICROS:
+                return OriginalType.TIMESTAMP_MICROS;
             default:
                 throw new IllegalArgumentException("Unknown converted type " + type);
         }

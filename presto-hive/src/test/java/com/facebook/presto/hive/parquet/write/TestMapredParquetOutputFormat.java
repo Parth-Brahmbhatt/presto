@@ -16,12 +16,11 @@ package com.facebook.presto.hive.parquet.write;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat;
-import org.apache.hadoop.hive.ql.io.parquet.write.DataWritableWriteSupport;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.util.Progressable;
-import parquet.hadoop.ParquetOutputFormat;
-import parquet.schema.MessageType;
+import org.apache.parquet.hadoop.ParquetOutputFormat;
+import org.apache.parquet.schema.MessageType;
 
 import java.io.IOException;
 import java.util.Optional;
@@ -57,7 +56,7 @@ public class TestMapredParquetOutputFormat
             throws IOException
     {
         if (schema.isPresent()) {
-            DataWritableWriteSupport.setSchema(schema.get(), jobConf);
+            jobConf.set("parquet.hive.schema", schema.toString());
             return getParquerRecordWriterWrapper(realOutputFormat, jobConf, finalOutPath.toString(), progress, tableProperties);
         }
         return super.getHiveRecordWriter(jobConf, finalOutPath, valueClass, isCompressed, tableProperties, progress);

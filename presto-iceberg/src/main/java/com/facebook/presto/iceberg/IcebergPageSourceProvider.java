@@ -17,6 +17,7 @@ import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
+import com.facebook.presto.hive.HiveHdfsConfiguration;
 import com.facebook.presto.hive.HivePageSource;
 import com.facebook.presto.hive.HivePageSourceProvider;
 import com.facebook.presto.hive.HivePartitionKey;
@@ -66,7 +67,6 @@ import static com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping.buil
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetTupleDomain;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetType;
-import static com.facebook.presto.hive.util.ConfigurationUtils.getInitialConfiguration;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getColumnIO;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getDescriptors;
 import static com.facebook.presto.parquet.predicate.PredicateUtils.buildPredicate;
@@ -112,7 +112,7 @@ public class IcebergPageSourceProvider
                 .collect(toList());
         return createParquetPageSource(hdfsEnvironment,
                 session.getUser(),
-                getInitialConfiguration(),
+                hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, icebergSplit.getDatabase(), icebergSplit.getTable()), path),
                 path,
                 start,
                 length,

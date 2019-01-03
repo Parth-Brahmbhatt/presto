@@ -334,10 +334,12 @@ public class IcebergMetadata
         IcebergInsertTableHandle icebergTable = (IcebergInsertTableHandle) insertHandle;
 
         final AppendFiles appendFiles = transaction.newFastAppend();
+        final HdfsEnvironment.HdfsContext hdfsContext = new HdfsEnvironment.HdfsContext(session, icebergTable.getSchemaName(), icebergTable.getTableName());
+        final Configuration configuration = hdfsEnvironment.getConfiguration(hdfsContext, new Path(icebergTable.getFilePrefix()));
         for (CommitTaskData commitTaskData : commitTasks) {
             final DataFiles.Builder builder;
             builder = DataFiles.builder(transaction.table().spec())
-                    .withInputFile(HadoopInputFile.fromLocation(commitTaskData.getPath(), getInitialConfiguration()))
+                    .withInputFile(HadoopInputFile.fromLocation(commitTaskData.getPath(), configuration))
                     .withFormat(icebergTable.getFileFormat())
                     .withMetrics(MetricsParser.fromJson(commitTaskData.getMetricsJson()));
 
