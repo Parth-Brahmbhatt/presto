@@ -27,8 +27,12 @@ import io.airlift.units.Duration;
 
 import javax.inject.Inject;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalInt;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.facebook.presto.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
@@ -113,6 +117,9 @@ public final class SystemSessionProperties
     private static final String GENIE_STACK = "genie_stack";
     private static final String GENIE_VERSION = "genie_version";
     private static final String QUERY_METADATA = "query_metadata";
+    public static final String METACAT_URI = "metacat_uri";
+    public static final String METACAT_CATALOG_MAPPING = "metacat_catalog_mapping";
+    public static final String ICEBERG_HIVE_MAPPING = "iceberg_hive_mapping";
 
     private final List<PropertyMetadata<?>> sessionProperties;
 
@@ -536,7 +543,22 @@ public final class SystemSessionProperties
                         QUERY_METADATA,
                         "A json string representation of query metadata",
                         "{}",
-                        true));
+                        true),
+                stringProperty(
+                        METACAT_URI,
+                        "URI for metacat that will be used only during the planning phase to determine if a table is iceberg or not",
+                        featuresConfig.getMetacatURI(),
+                        false),
+                stringProperty(
+                        METACAT_CATALOG_MAPPING,
+                        "Mapping from presto catalog name to metacat catalog name i.e. hive=prodhive, testhivehc=testhive, iceberghive=prodhive",
+                        featuresConfig.getMetacatCatalogMapping(),
+                        false),
+                stringProperty(
+                        ICEBERG_HIVE_MAPPING,
+                        "Mapping from iceberg presto catalog name to corresponding presto hive catalog name i.e. icebergprodhive=hive, icebergtesthive=testhive",
+                        featuresConfig.getIcebergCatalogMapping(),
+                        false));
     }
 
     public List<PropertyMetadata<?>> getSessionProperties()
@@ -861,5 +883,30 @@ public final class SystemSessionProperties
     public static DataSize getQueryMaxDataSize(Session session)
     {
         return session.getSystemProperty(QUERY_MAX_DATA_SIZE, DataSize.class);
+    }
+
+    public static String getMetacatUri(Session session)
+    {
+        return session.getSystemProperty(METACAT_URI, String.class);
+    }
+
+    public static Map<String, String> getMetacatCatalogMapping(Session session)
+    {
+        return getMap(session, METACAT_CATALOG_MAPPING);
+    }
+
+    public static Map<String, String> getIcebergCatalogMapping(Session session)
+    {
+        return getMap(session, ICEBERG_HIVE_MAPPING);
+    }
+
+    private static Map<String, String> getMap(Session session, String propertyName)
+    {
+        final String catalogMapping = session.getSystemProperty(propertyName, String.class);
+        if (catalogMapping != null) {
+            return Arrays.stream(catalogMapping.split(",")).map(s -> s.split("=")).collect(Collectors.toMap(a -> a[0].trim(), a -> a[1].trim()));
+        }
+
+        return Collections.EMPTY_MAP;
     }
 }

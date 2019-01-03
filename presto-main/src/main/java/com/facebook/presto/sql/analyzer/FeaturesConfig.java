@@ -122,6 +122,10 @@ public class FeaturesConfig
     private int maxGroupingSets = 2048;
     private boolean legacyUnnestArrayRows;
 
+    private String metacatURI;
+    private String metacatCatalogMapping;
+    private String icebergCatalogMapping;
+
     public enum JoinReorderingStrategy
     {
         NONE,
@@ -859,5 +863,38 @@ public class FeaturesConfig
     {
         this.legacyUnnestArrayRows = legacyUnnestArrayRows;
         return this;
+    }
+
+    public String getMetacatURI()
+    {
+        return metacatURI;
+    }
+
+    @Config("metacat_uri")
+    public void setMetacatURI(String metacatURI)
+    {
+        this.metacatURI = metacatURI;
+    }
+
+    public String getMetacatCatalogMapping()
+    {
+        return metacatCatalogMapping;
+    }
+
+    @Config("metacat_catalog_mapping")
+    public void setMetacatCatalogMapping(String metacatCatalogMapping)
+    {
+        this.metacatCatalogMapping = metacatCatalogMapping;
+    }
+
+    public String getIcebergCatalogMapping()
+    {
+        return icebergCatalogMapping;
+    }
+
+    @Config("iceberg_hive_mapping")
+    public void setIcebergCatalogMapping(String icebergCatalogMapping)
+    {
+        this.icebergCatalogMapping = icebergCatalogMapping;
     }
 }

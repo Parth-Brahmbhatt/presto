@@ -44,6 +44,7 @@ import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.netflix.iceberg.AppendFiles;
+import com.netflix.iceberg.BaseMetastoreTables;
 import com.netflix.iceberg.DataFiles;
 import com.netflix.iceberg.FileFormat;
 import com.netflix.iceberg.PartitionSpec;
@@ -51,7 +52,6 @@ import com.netflix.iceberg.Schema;
 import com.netflix.iceberg.SchemaParser;
 import com.netflix.iceberg.Transaction;
 import com.netflix.iceberg.hadoop.HadoopInputFile;
-import com.netflix.iceberg.hive.HiveTables;
 import com.netflix.iceberg.types.Types;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
@@ -67,11 +67,6 @@ import java.util.Set;
 
 import static com.facebook.presto.hive.HiveTableProperties.getPartitionedBy;
 import static com.facebook.presto.hive.HiveUtil.schemaTableName;
-import static com.facebook.presto.hive.util.ConfigurationUtils.getInitialConfiguration;
-import static com.facebook.presto.iceberg.IcebergUtil.getDataPath;
-import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
-import static com.facebook.presto.iceberg.IcebergUtil.getTablePath;
-import static com.facebook.presto.iceberg.IcebergUtil.isIcebergTable;
 import static com.netflix.iceberg.types.Types.NestedField.required;
 import static java.util.Collections.EMPTY_LIST;
 import static java.util.Collections.emptyMap;
@@ -91,18 +86,24 @@ public class IcebergMetadata
     private final TypeManager typeManager;
     private final SemiTransactionalHiveMetastore metastore;
     private final JsonCodec<CommitTaskData> jsonCodec;
+    private IcebergConfig icebergConfig;
+    private IcebergUtil icebergUtil;
     private Transaction transaction;
 
     public IcebergMetadata(
             SemiTransactionalHiveMetastore metastore,
             HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
-            JsonCodec<CommitTaskData> jsonCodec)
+            JsonCodec<CommitTaskData> jsonCodec,
+            IcebergConfig icebergConfig,
+            IcebergUtil icebergUtil)
     {
         this.hdfsEnvironment = hdfsEnvironment;
         this.typeManager = typeManager;
         this.metastore = metastore;
         this.jsonCodec = jsonCodec;
+        this.icebergConfig = icebergConfig;
+        this.icebergUtil = icebergUtil;
     }
 
     @Override
@@ -116,7 +117,7 @@ public class IcebergMetadata
     {
         final Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
         if (table.isPresent()) {
-            if (isIcebergTable(table.get())) {
+            if (icebergUtil.isIcebergTable(table.get())) {
                 return new IcebergTableHandle(tableName.getSchemaName(), tableName.getTableName());
             }
             else {
@@ -176,8 +177,8 @@ public class IcebergMetadata
     {
         IcebergTableHandle tbl = (IcebergTableHandle) tableHandle;
         final Configuration configuration = getConfiguration(session, tbl.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = getIcebergTable(tbl.getSchemaName(), tbl.getTableName(), configuration);
-        final List<HiveColumnHandle> columns = IcebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getSchemaName(), tbl.getTableName(), configuration);
+        final List<HiveColumnHandle> columns = icebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
         return columns.stream().collect(toMap(col -> col.getName(), identity()));
     }
 
@@ -194,7 +195,7 @@ public class IcebergMetadata
         // TODO we need to query the metastore to both check for existance and to get all tables with matching prefix
         requireNonNull(prefix, "prefix is null");
         final Configuration configuration = getConfiguration(session, prefix.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = getIcebergTable(prefix.getSchemaName(), prefix.getTableName(), configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), prefix.getSchemaName(), prefix.getTableName(), configuration);
         final List<ColumnMetadata> columnMetadatas = getColumnMetadatas(icebergTable);
         return ImmutableMap.<SchemaTableName, List<ColumnMetadata>>builder().put(new SchemaTableName(prefix.getSchemaName(), prefix.getTableName()), columnMetadatas).build();
     }
@@ -226,7 +227,7 @@ public class IcebergMetadata
         final PartitionSpec partitionSpec = builder.build();
 
         final Configuration configuration = getConfiguration(session, schemaName);
-        final HiveTables hiveTables = IcebergUtil.getHiveTables(configuration);
+        final BaseMetastoreTables hiveTables = icebergUtil.getMetaStoreTables(configuration, icebergConfig.getMetacatCatalogName());
 
         if (ignoreExisting) {
             final Optional<Table> table = metastore.getTable(schemaName, tableName);
@@ -275,16 +276,16 @@ public class IcebergMetadata
         final PartitionSpec partitionSpec = builder.build();
 
         final Configuration configuration = getConfiguration(session, schemaName);
-        final HiveTables table = IcebergUtil.getHiveTables(configuration);
+        final BaseMetastoreTables table = icebergUtil.getMetaStoreTables(configuration, icebergConfig.getMetacatCatalogName());
         //TODO see if there is a way to store this as transaction state.
         this.transaction = table.beginCreate(schema, partitionSpec, schemaName, tableName);
-        final List<HiveColumnHandle> hiveColumnHandles = IcebergUtil.getColumns(schema, partitionSpec, typeManager);
+        final List<HiveColumnHandle> hiveColumnHandles = icebergUtil.getColumns(schema, partitionSpec, typeManager);
         return new IcebergInsertTableHandle(
                 schemaName,
                 tableName,
                 SchemaParser.toJson(transaction.table().schema()),
                 hiveColumnHandles,
-                getDataPath(getTablePath(schemaName, tableName, configuration)),
+                icebergUtil.getDataPath(icebergUtil.getTablePath(schemaName, tableName, configuration)),
                 FileFormat.PARQUET);
     }
 
@@ -308,17 +309,17 @@ public class IcebergMetadata
     {
         IcebergTableHandle tbl = (IcebergTableHandle) tableHandle;
         final Configuration configuration = getConfiguration(session, tbl.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = getIcebergTable(tbl.getSchemaName(), tbl.getTableName(), configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getSchemaName(), tbl.getTableName(), configuration);
         this.transaction = icebergTable.newTransaction();
         String location = icebergTable.location();
-        final List<HiveColumnHandle> columns = IcebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
+        final List<HiveColumnHandle> columns = icebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
         return new IcebergInsertTableHandle(
                 tbl.getSchemaName(),
                 tbl.getTableName(),
                 SchemaParser.toJson(icebergTable.schema()),
                 columns,
-                getDataPath(location),
-                IcebergUtil.getFileFormat(icebergTable));
+                icebergUtil.getDataPath(location),
+                icebergUtil.getFileFormat(icebergTable));
     }
 
     /**
@@ -384,7 +385,7 @@ public class IcebergMetadata
     {
         IcebergTableHandle handle = (IcebergTableHandle) tableHandle;
         final Configuration configuration = getConfiguration(session, handle.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = IcebergUtil.getIcebergTable(handle.getSchemaName(), handle.getTableName(), configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), handle.getSchemaName(), handle.getTableName(), configuration);
         icebergTable.updateSchema().addColumn(column.getName(), TypeConveter.convert(column.getType())).commit();
     }
 
@@ -393,7 +394,7 @@ public class IcebergMetadata
         IcebergTableHandle icebergTableHandle = (IcebergTableHandle) tableHandle;
         HiveColumnHandle handle = (HiveColumnHandle) column;
         final Configuration configuration = getConfiguration(session, icebergTableHandle.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = IcebergUtil.getIcebergTable(icebergTableHandle.getSchemaName(), icebergTableHandle.getTableName(), configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), icebergTableHandle.getSchemaName(), icebergTableHandle.getTableName(), configuration);
         icebergTable.updateSchema().deleteColumn(handle.getName()).commit();
     }
 
@@ -402,7 +403,7 @@ public class IcebergMetadata
         IcebergTableHandle icebergTableHandle = (IcebergTableHandle) tableHandle;
         HiveColumnHandle columnHandle = (HiveColumnHandle) source;
         final Configuration configuration = getConfiguration(session, icebergTableHandle.getSchemaName());
-        final com.netflix.iceberg.Table icebergTable = IcebergUtil.getIcebergTable(icebergTableHandle.getSchemaName(), icebergTableHandle.getTableName(), configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), icebergTableHandle.getSchemaName(), icebergTableHandle.getTableName(), configuration);
         icebergTable.updateSchema().renameColumn(columnHandle.getName(), target).commit();
     }
 
@@ -414,7 +415,7 @@ public class IcebergMetadata
         }
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, schema), new Path("file:///tmp"));
 
-        final com.netflix.iceberg.Table icebergTable = getIcebergTable(schema, tableName, configuration);
+        final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), schema, tableName, configuration);
 
         final List<ColumnMetadata> columns = getColumnMetadatas(icebergTable);
 

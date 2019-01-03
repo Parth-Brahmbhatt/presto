@@ -108,6 +108,8 @@ public class IcebergModule
         binder.bind(DirectoryLister.class).to(HadoopDirectoryLister.class).in(Scopes.SINGLETON);
         configBinder(binder).bindConfig(HiveClientConfig.class);
         configBinder(binder).bindConfig(HiveS3Config.class);
+        configBinder(binder).bindConfig(IcebergConfig.class);
+        binder.bind(IcebergUtil.class).in(Scopes.SINGLETON);
         binder.bind(HiveSessionProperties.class).in(Scopes.SINGLETON);
         binder.bind(HiveTableProperties.class).in(Scopes.SINGLETON);
         binder.bind(NamenodeStats.class).in(Scopes.SINGLETON);

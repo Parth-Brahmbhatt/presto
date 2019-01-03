@@ -14,6 +14,7 @@
 package com.facebook.presto.metadata;
 
 import com.facebook.presto.Session;
+import com.facebook.presto.SystemSessionProperties;
 import com.facebook.presto.spi.CatalogSchemaName;
 import com.facebook.presto.spi.ColumnMetadata;
 import com.facebook.presto.spi.ConnectorTableMetadata;
@@ -26,9 +27,15 @@ import com.facebook.presto.sql.tree.QualifiedName;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.netflix.metacat.client.Client;
+import com.netflix.metacat.common.dto.TableDto;
+import com.netflix.metacat.common.exception.MetacatNotFoundException;
+import io.airlift.log.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.spi.StandardErrorCode.SYNTAX_ERROR;
 import static com.facebook.presto.sql.analyzer.SemanticErrorCode.CATALOG_NOT_SPECIFIED;
@@ -41,6 +48,8 @@ import static java.util.Objects.requireNonNull;
 
 public final class MetadataUtil
 {
+    private static final Logger log = Logger.get(MetadataUtil.class);
+
     private MetadataUtil() {}
 
     public static void checkTableName(String catalogName, Optional<String> schemaName, Optional<String> tableName)
@@ -134,6 +143,42 @@ public final class MetadataUtil
         String catalogName = (parts.size() > 2) ? parts.get(2) : session.getCatalog().orElseThrow(() ->
                 new SemanticException(CATALOG_NOT_SPECIFIED, node, "Catalog must be specified when session catalog is not set"));
 
+        final String metacatUri = SystemSessionProperties.getMetacatUri(session);
+        if (metacatUri != null) {
+            final Map<String, String> metacatCatalogMapping = SystemSessionProperties.getMetacatCatalogMapping(session);
+            final Map<String, String> icebergCatalogMapping = SystemSessionProperties.getIcebergCatalogMapping(session);
+            final Map<String, String> hiveToIcebergCatalogMapping = icebergCatalogMapping.entrySet().stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+            if (metacatCatalogMapping.containsKey(catalogName) && !"information_schema".equalsIgnoreCase(schemaName) &&
+                    (hiveToIcebergCatalogMapping.containsKey(catalogName) || icebergCatalogMapping.containsKey(catalogName))) {
+                final String stack = System.getenv("stack");
+                Client client = Client.builder()
+                        .withHost(metacatUri)
+                        .withDataTypeContext("hive")
+                        .withUserName("presto-iceberg-checker")
+                        .withClientAppName("presto-" + stack)
+                        .build();
+                try {
+                    final String metacatCatalogName = metacatCatalogMapping.get(catalogName);
+                    final TableDto table = client.getApi().getTable(metacatCatalogName, schemaName, objectName, true, true, false);
+                    final Map<String, String> metadata = table.getMetadata();
+                    if (metadata.containsKey("table_type") && metadata.get("table_type").equalsIgnoreCase("iceberg")) {
+                        if (hiveToIcebergCatalogMapping.containsKey(catalogName)) {
+                            log.info("Rewriting the catalog from %s to %s ", catalogName, hiveToIcebergCatalogMapping.get(catalogName));
+                            return new QualifiedObjectName(hiveToIcebergCatalogMapping.get(catalogName), schemaName, objectName);
+                        }
+                    }
+                    else {
+                        if (icebergCatalogMapping.containsKey(catalogName)) {
+                            log.info("Rewriting the catalog from %s to %s ", catalogName, icebergCatalogMapping.get(catalogName));
+                            return new QualifiedObjectName(icebergCatalogMapping.get(catalogName), schemaName, objectName);
+                        }
+                    }
+                }
+                catch (MetacatNotFoundException e) {
+                    log.info("Ignoring the exception, let normal processing handle it correctly", e);
+                }
+            }
+        }
         return new QualifiedObjectName(catalogName, schemaName, objectName);
     }
 

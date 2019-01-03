@@ -45,6 +45,18 @@
             <name>Netflix Artifactory</name>
             <url>https://artifacts.netflix.com/libs-releases-local</url>
         </repository>
+
+        <repository>
+            <id>libs-candidates-local-pom</id>
+            <name>Netflix Artifactory</name>
+            <url>http://artifacts.netflix.com/libs-candidates-local-pom</url>
+        </repository>
+
+        <repository>
+            <id>libs-candidates-local</id>
+            <name>Netflix Artifactory</name>
+            <url>http://artifacts.netflix.com/libs-candidates-local</url>
+        </repository>
     </repositories>
 
     <properties>
@@ -408,7 +420,7 @@
             <dependency>
                 <groupId>com.facebook.presto.hive</groupId>
                 <artifactId>hive-apache</artifactId>
-                <version>0.17-nflx.2</version>
+                <version>0.17-nflx.3</version>
             </dependency>
 
             <dependency>
@@ -1108,6 +1120,47 @@
                     </exclusion>
                 </exclusions>
             </dependency>
+
+            <dependency>
+                <groupId>netflix</groupId>
+                <artifactId>metacat-client</artifactId>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.google.code.findbugs</groupId>
+                        <artifactId>jsr305</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>jsr311-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>javax.ws.rs-api</artifactId>
+                    </exclusion>
+                </exclusions>
+                <version>1.110</version>
+            </dependency>
+
+            <dependency>
+                <groupId>netflix</groupId>
+                <artifactId>metacat-common</artifactId>
+                <version>1.109.0</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.google.code.findbugs</groupId>
+                        <artifactId>jsr305</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>jsr311-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>javax.ws.rs</groupId>
+                        <artifactId>javax.ws.rs-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 

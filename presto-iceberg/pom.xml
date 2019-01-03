@@ -25,9 +25,10 @@
     <properties>
         <parquet.version>1.10.0</parquet.version>
         <air.main.basedir>${project.parent.basedir}</air.main.basedir>
-        <!--<air.check.skip-dependency>true</air.check.skip-dependency>-->
         <!--<air.check.skip-duplicate-finder>true</air.check.skip-duplicate-finder>-->
-        <!--<air.check.skip-checkstyle>true</air.check.skip-checkstyle>-->
+        <!--<air.check.skip-findbugs>true</air.check.skip-findbugs>-->
+        <!--<air.check.skip-dependency-version-check>true</air.check.skip-dependency-version-check>-->
+        <air.check.skip-dependency>true</air.check.skip-dependency>
     </properties>
 
     <dependencies>
@@ -46,8 +47,8 @@
 
         <dependency>
             <groupId>com.netflix.iceberg</groupId>
-            <artifactId>iceberg-presto-runtime</artifactId>
-            <version>0.5.0-30-gf240a7a.dirty</version>
+            <artifactId>bdp-iceberg</artifactId>
+            <version>0.4.52</version>
         </dependency>
 
         <dependency>
@@ -131,6 +132,18 @@
         <dependency>
             <groupId>joda-time</groupId>
             <artifactId>joda-time</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>netflix</groupId>
+            <artifactId>brotli-codec</artifactId>
+            <version>0.1.8</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.12</version>
         </dependency>
 
         <!-- Presto SPI -->

@@ -26,11 +26,13 @@ import com.netflix.iceberg.PartitionField;
 import com.netflix.iceberg.PartitionSpec;
 import com.netflix.iceberg.Schema;
 import com.netflix.iceberg.Table;
-import com.netflix.iceberg.hive.HiveTables;
+import com.netflix.iceberg.metacat.MetacatTables;
 import com.netflix.iceberg.types.Type;
 import com.netflix.iceberg.types.Types;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+
+import javax.inject.Inject;
 
 import java.util.List;
 import java.util.Locale;
@@ -54,25 +56,35 @@ class IcebergUtil
     private static final String PATH_SEPERATOR = "/";
     public static final String DATA_DIR_NAME = "data";
 
-    private IcebergUtil() {}
+    public static final String NETFLIX_METACAT_HOST = "netflix.metacat.host";
+    public static final String APP_NAME = "presto-" + System.getenv("stack");
 
-    public static final boolean isIcebergTable(com.facebook.presto.hive.metastore.Table table)
+    private final IcebergConfig config;
+
+    @Inject
+    public IcebergUtil(IcebergConfig config)
+    {
+        this.config = config;
+    }
+
+    public final boolean isIcebergTable(com.facebook.presto.hive.metastore.Table table)
     {
         final Map<String, String> parameters = table.getParameters();
         return parameters != null && !parameters.isEmpty() && ICEBERG_PROPERTY_VALUE.equalsIgnoreCase(parameters.get(ICEBERG_PROPERTY_NAME));
     }
 
-    public static Table getIcebergTable(String database, String tableName, Configuration configuration)
+    public Table getIcebergTable(String catalog, String database, String tableName, Configuration configuration)
     {
-        return getHiveTables(configuration).load(database, tableName);
+        configuration.set(NETFLIX_METACAT_HOST, config.getMetastoreRestEndpoint());
+        return getMetaStoreTables(configuration, catalog).load(database, tableName);
     }
 
-    public static HiveTables getHiveTables(Configuration configuration)
+    public MetacatTables getMetaStoreTables(Configuration configuration, String catalog)
     {
-        return new HiveTables(configuration);
+        return new MetacatTables(configuration, APP_NAME, catalog);
     }
 
-    public static final List<HiveColumnHandle> getColumns(Schema schema, PartitionSpec spec, TypeManager typeManager)
+    public final List<HiveColumnHandle> getColumns(Schema schema, PartitionSpec spec, TypeManager typeManager)
     {
         final List<Types.NestedField> columns = schema.columns();
         int columnIndex = 0;
@@ -100,7 +112,7 @@ class IcebergUtil
         return builder.build();
     }
 
-    public static final com.facebook.presto.spi.type.Type coerceForHive(com.facebook.presto.spi.type.Type prestoType)
+    public final com.facebook.presto.spi.type.Type coerceForHive(com.facebook.presto.spi.type.Type prestoType)
     {
         if (prestoType.equals(TIMESTAMP_WITH_TIME_ZONE)) {
             return TimestampType.TIMESTAMP;
@@ -116,17 +128,17 @@ class IcebergUtil
         return partitionSpec.fields().stream().filter(partitionField -> partitionField.transform().toString().equals("identity")).collect(Collectors.toList());
     }
 
-    public static final String getDataPath(String icebergLocation)
+    public final String getDataPath(String icebergLocation)
     {
         return icebergLocation.endsWith(PATH_SEPERATOR) ? icebergLocation + DATA_DIR_NAME : icebergLocation + PATH_SEPERATOR + DATA_DIR_NAME;
     }
 
-    public static final String getTablePath(String schemaName, String tableName, Configuration configuration)
+    public final String getTablePath(String schemaName, String tableName, Configuration configuration)
     {
         return new Path(new Path(configuration.get(HIVE_WAREHOUSE_DIR), String.format("%s.db", schemaName)), tableName).toString();
     }
 
-    public static final FileFormat getFileFormat(Table table)
+    public final FileFormat getFileFormat(Table table)
     {
         return FileFormat.valueOf(table.properties()
                 .getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT)

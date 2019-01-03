@@ -17,7 +17,6 @@ import com.facebook.presto.hive.FileFormatDataSourceStats;
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
-import com.facebook.presto.hive.HiveHdfsConfiguration;
 import com.facebook.presto.hive.HivePageSource;
 import com.facebook.presto.hive.HivePageSourceProvider;
 import com.facebook.presto.hive.HivePartitionKey;
@@ -187,7 +186,8 @@ public class IcebergPageSourceProvider
                     dataSource,
                     systemMemoryContext);
 
-            List<HivePageSourceProvider.ColumnMapping> columnMappings = buildColumnMappings(partitionKeys, columns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty());
+            List<HivePageSourceProvider.ColumnMapping> columnMappings = buildColumnMappings(partitionKeys, parquetColumns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty());
+            final List<HiveColumnHandle> regularColumns = parquetColumns.stream().filter(c -> c.getColumnType() == REGULAR).collect(toList());
 
             return new HivePageSource(
                     columnMappings,
@@ -200,7 +200,7 @@ public class IcebergPageSourceProvider
                             messageColumnIO,
                             typeManager,
                             new Properties(),
-                            columns,
+                            regularColumns,
                             effectivePredicate,
                             useParquetColumnNames));
         }

@@ -13,19 +13,18 @@
  */
 package com.facebook.presto.iceberg;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.netflix.iceberg.Metrics;
 import com.netflix.iceberg.exceptions.RuntimeIOException;
-import com.netflix.iceberg.util.JsonUtil;
 
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
-
-import static com.netflix.iceberg.util.JsonUtil.factory;
 
 // TODO this needs to part of Iceberg otherwise we could miss metrics that are newly added on iceberg side.
 public class MetricsParser
@@ -39,6 +38,9 @@ public class MetricsParser
     private static final String KEY = "key";
     private static final String VALUE = "value";
 
+    private static final JsonFactory FACTORY = new JsonFactory();
+    private static final ObjectMapper MAPPER = new ObjectMapper(FACTORY);
+
     private MetricsParser()
     {
     }
@@ -47,7 +49,7 @@ public class MetricsParser
     {
         try {
             StringWriter writer = new StringWriter();
-            JsonGenerator generator = factory().createGenerator(writer);
+            JsonGenerator generator = FACTORY.createGenerator(writer);
             generator.writeStartObject();
             writeMap(generator, metrics.columnSizes(), COLUMN_SIZES);
             writeMap(generator, metrics.nullValueCounts(), NULL_VALUE_COUNTS);
@@ -106,7 +108,7 @@ public class MetricsParser
     public static Metrics fromJson(String json)
     {
         try {
-            final JsonNode jsonNode = JsonUtil.mapper().readTree(json);
+            final JsonNode jsonNode = MAPPER.readTree(json);
             final Map<Integer, Long> columnSizes = readMap(jsonNode.get(COLUMN_SIZES), Long.class);
             final Map<Integer, Long> nullValueCounts = readMap(jsonNode.get(NULL_VALUE_COUNTS), Long.class);
             final Map<Integer, Long> valueCounts = readMap(jsonNode.get(VALUE_COUNTS), Long.class);

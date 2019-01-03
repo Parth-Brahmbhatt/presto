@@ -35,24 +35,28 @@ import javax.inject.Inject;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static com.facebook.presto.iceberg.IcebergUtil.getIcebergTable;
-
 public class IcebergSplitManager
         implements ConnectorSplitManager
 {
     private final HdfsEnvironment hdfsEnvironment;
     private final TypeTranslator typeTranslator;
     private final TypeManager typeRegistry;
+    private IcebergConfig icebergConfig;
+    private IcebergUtil icebergUtil;
 
     @Inject
     public IcebergSplitManager(
             HdfsEnvironment hdfsEnvironment,
             TypeTranslator typeTranslator,
-            TypeManager typeRegistry)
+            TypeManager typeRegistry,
+            IcebergConfig icebergConfig,
+            IcebergUtil icebergUtil)
     {
         this.hdfsEnvironment = hdfsEnvironment;
         this.typeTranslator = typeTranslator;
         this.typeRegistry = typeRegistry;
+        this.icebergConfig = icebergConfig;
+        this.icebergUtil = icebergUtil;
     }
 
     @Override
@@ -66,7 +70,7 @@ public class IcebergSplitManager
                 .map(m -> m.entrySet().stream().collect(Collectors.toMap((x) -> HiveColumnHandle.class.cast(x.getKey()), Map.Entry::getValue)))
                 .map(m -> TupleDomain.withColumnDomains(m)).orElse(TupleDomain.none());
         final Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, tbl.getDatabase()), new Path("file:///tmp"));
-        final Table icebergTable = getIcebergTable(tbl.getDatabase(), tbl.getTableName(), configuration);
+        final Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getDatabase(), tbl.getTableName(), configuration);
         final Expression expression = ExpressionConverter.toIceberg(predicates, session);
         final TableScan tableScan = icebergTable.newScan().filter(expression);
         // TODO Use residual and move to scan tasks, Right now there is no way to propagate residual to presto.

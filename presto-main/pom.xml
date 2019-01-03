@@ -299,6 +299,17 @@
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>netflix</groupId>
+            <artifactId>metacat-client</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>netflix</groupId>
+            <artifactId>metacat-common</artifactId>
+        </dependency>
+
         <!-- used by tests but also needed transitively -->
         <dependency>
             <groupId>org.apache.bval</groupId>
