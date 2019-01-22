@@ -22,7 +22,9 @@ import com.facebook.presto.spi.type.DateType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.DoubleType;
 import com.facebook.presto.spi.type.RealType;
+import com.facebook.presto.spi.type.SmallintType;
 import com.facebook.presto.spi.type.TimestampType;
+import com.facebook.presto.spi.type.TinyintType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.VarcharType;
 import org.apache.parquet.column.ColumnDescriptor;
@@ -328,6 +330,10 @@ public final class ParquetTypeUtils
                 return createDecimalType(descriptor.getPrimitiveType().getDecimalMetadata());
             case DATE:
                 return DateType.DATE;
+            case INT_16:
+                return SmallintType.SMALLINT;
+            case INT_8:
+                return TinyintType.TINYINT;
             default:
                 return INTEGER;
         }
