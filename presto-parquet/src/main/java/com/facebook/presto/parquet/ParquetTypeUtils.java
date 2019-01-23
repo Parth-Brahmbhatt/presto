@@ -21,6 +21,7 @@ import com.facebook.presto.spi.type.BooleanType;
 import com.facebook.presto.spi.type.DateType;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.DoubleType;
+import com.facebook.presto.spi.type.IntegerType;
 import com.facebook.presto.spi.type.RealType;
 import com.facebook.presto.spi.type.SmallintType;
 import com.facebook.presto.spi.type.TimestampType;
@@ -167,13 +168,13 @@ public final class ParquetTypeUtils
             case BOOLEAN:
                 return BooleanType.BOOLEAN;
             case BINARY:
-                return createDecimalType(descriptor).orElse(createVarcharType(effectivePredicate, descriptor));
+                return createDecimalType(descriptor).orElse(getPrestoTypeBasedOnPredicate(effectivePredicate, descriptor, VarcharType.VARCHAR));
             case FLOAT:
                 return RealType.REAL;
             case DOUBLE:
                 return DoubleType.DOUBLE;
             case INT32:
-                return getInt32Type(descriptor);
+                return getInt32Type(effectivePredicate, descriptor);
             case INT64:
                 return createDecimalType(descriptor).orElse(BigintType.BIGINT);
             case INT96:
@@ -185,7 +186,7 @@ public final class ParquetTypeUtils
         }
     }
 
-    private static Type createVarcharType(TupleDomain<ColumnDescriptor> effectivePredicate, RichColumnDescriptor column)
+    private static Type getPrestoTypeBasedOnPredicate(TupleDomain<ColumnDescriptor> effectivePredicate, RichColumnDescriptor column, Type defaultType)
     {
         // We look at the effectivePredicate domain here, because it matches the Hive column type
         // more accurately than the type available in the RichColumnDescriptor.
@@ -198,7 +199,7 @@ public final class ParquetTypeUtils
                 return domain.getType();
             }
         }
-        return VarcharType.VARCHAR;
+        return defaultType;
     }
 
     public static int getFieldIndex(MessageType fileSchema, String name)
@@ -318,11 +319,11 @@ public final class ParquetTypeUtils
         return value;
     }
 
-    private static Type getInt32Type(RichColumnDescriptor descriptor)
+    private static Type getInt32Type(TupleDomain<ColumnDescriptor> effectivePredicate, RichColumnDescriptor descriptor)
     {
         OriginalType originalType = descriptor.getPrimitiveType().getOriginalType();
         if (originalType == null) {
-            return INTEGER;
+            return getPrestoTypeBasedOnPredicate(effectivePredicate, descriptor, IntegerType.INTEGER);
         }
 
         switch (originalType) {
