@@ -230,8 +230,8 @@ public class NetflixAccessControl
 
     private void denyAccess(String schema)
     {
-        throw new AccessDeniedException(format("To access this table you should specify the role arn with the %s_%s session property " +
-                        "on the %s catalog: \"set session %s.%s_%s=<role_arn>\"",
-                AWS_IAM_ROLE, schema, this.connectorId, this.connectorId, AWS_IAM_ROLE, schema));
+        throw new AccessDeniedException(format("To access this table you should specify the role arn for %s with the %s session property " +
+                        "on the %s catalog: \"set session %s.%s=<%s role_arn>\"",
+                schema, AWS_IAM_ROLE, this.connectorId, this.connectorId, AWS_IAM_ROLE, schema));
     }
 }
