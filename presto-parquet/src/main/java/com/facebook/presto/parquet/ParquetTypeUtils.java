@@ -176,7 +176,7 @@ public final class ParquetTypeUtils
             case INT32:
                 return getInt32Type(effectivePredicate, descriptor);
             case INT64:
-                return createDecimalType(descriptor).orElse(BigintType.BIGINT);
+                return getInt64Type(effectivePredicate, descriptor);
             case INT96:
                 return TimestampType.TIMESTAMP;
             case FIXED_LEN_BYTE_ARRAY:
@@ -337,6 +337,28 @@ public final class ParquetTypeUtils
                 return TinyintType.TINYINT;
             default:
                 return INTEGER;
+        }
+    }
+
+    private static Type getInt64Type(TupleDomain<ColumnDescriptor> effectivePredicate, RichColumnDescriptor descriptor)
+    {
+        OriginalType originalType = descriptor.getPrimitiveType().getOriginalType();
+
+        switch (originalType) {
+            case DECIMAL:
+                return createDecimalType(descriptor.getPrimitiveType().getDecimalMetadata());
+            case DATE:
+                return DateType.DATE;
+            case TIME_MICROS:
+            case TIMESTAMP_MICROS:
+                // Based on the original type the actual presto type could be time, timestamp, timestamp with timezone
+                // or time with timezone, so we just default to the type in predicate which should map directly to column's type.
+                return getPrestoTypeBasedOnPredicate(effectivePredicate, descriptor, TimestampType.TIMESTAMP);
+            case TIME_MILLIS:
+            case TIMESTAMP_MILLIS:
+                throw new IllegalArgumentException("No known engine stores data at millisecond precision.");
+            default:
+                return BigintType.BIGINT;
         }
     }
 }
