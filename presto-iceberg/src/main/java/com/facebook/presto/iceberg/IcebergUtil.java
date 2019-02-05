@@ -81,6 +81,7 @@ class IcebergUtil
 
     public MetacatTables getMetaStoreTables(Configuration configuration, String catalog)
     {
+        configuration.set(NETFLIX_METACAT_HOST, config.getMetastoreRestEndpoint());
         return new MetacatTables(configuration, APP_NAME, catalog);
     }
 
