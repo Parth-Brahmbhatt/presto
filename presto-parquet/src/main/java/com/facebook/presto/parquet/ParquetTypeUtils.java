@@ -343,6 +343,9 @@ public final class ParquetTypeUtils
     private static Type getInt64Type(TupleDomain<ColumnDescriptor> effectivePredicate, RichColumnDescriptor descriptor)
     {
         OriginalType originalType = descriptor.getPrimitiveType().getOriginalType();
+        if (originalType == null) {
+            return getPrestoTypeBasedOnPredicate(effectivePredicate, descriptor, BigintType.BIGINT);
+        }
 
         switch (originalType) {
             case DECIMAL:
