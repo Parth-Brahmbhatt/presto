@@ -49,6 +49,7 @@ import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
 import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
+import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.VarbinaryType.VARBINARY;
 import static java.lang.String.format;
@@ -118,6 +119,13 @@ public class HiveTypeTranslator
         if (TIMESTAMP.equals(type)) {
             return HIVE_TIMESTAMP.getTypeInfo();
         }
+
+        if (TIMESTAMP_WITH_TIME_ZONE.equals(type)) {
+            // Hive does not have TIMESTAMP_WITH_TIME_ZONE, this is just a work around for iceberg, that upstream would not approve
+            // so we probably will need to handle it in iceberg connector but for now this should unblock netflix users.
+            return HIVE_TIMESTAMP.getTypeInfo();
+        }
+
         if (type instanceof DecimalType) {
             DecimalType decimalType = (DecimalType) type;
             return new DecimalTypeInfo(decimalType.getPrecision(), decimalType.getScale());
