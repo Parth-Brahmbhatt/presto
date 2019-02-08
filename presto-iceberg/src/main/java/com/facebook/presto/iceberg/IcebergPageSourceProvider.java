@@ -36,6 +36,7 @@ import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.TypeManager;
+import io.airlift.units.DataSize;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -118,6 +119,7 @@ public class IcebergPageSourceProvider
                 hiveColumns,
                 icebergSplit.getNameToId(),
                 hiveClientConfig.isUseParquetColumnNames(),
+                hiveClientConfig.getParquetMaxReadBlockSize(),
                 typeManager,
                 icebergSplit.getEffectivePredicate(),
                 ((IcebergSplit) split).getPartitionKeys(),
@@ -134,6 +136,7 @@ public class IcebergPageSourceProvider
             List<HiveColumnHandle> columns,
             Map<String, Integer> icebergNameToId,
             boolean useParquetColumnNames,
+            DataSize maxReadBlockSize,
             TypeManager typeManager,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             List<HivePartitionKey> partitionKeys,
@@ -184,7 +187,8 @@ public class IcebergPageSourceProvider
                     messageColumnIO,
                     blocks,
                     dataSource,
-                    systemMemoryContext);
+                    systemMemoryContext,
+                    maxReadBlockSize);
 
             List<HivePageSourceProvider.ColumnMapping> columnMappings = buildColumnMappings(partitionKeys, parquetColumns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty());
             final List<HiveColumnHandle> regularColumns = parquetColumns.stream().filter(c -> c.getColumnType() == REGULAR).collect(toList());

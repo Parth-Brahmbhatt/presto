@@ -153,6 +153,8 @@ public class HiveClientConfig
         return maxInitialSplits;
     }
 
+    private DataSize parquetMaxReadBlockSize = new DataSize(16, MEGABYTE);
+
     @Config("hive.max-initial-splits")
     public HiveClientConfig setMaxInitialSplits(int maxInitialSplits)
     {
@@ -1179,4 +1181,17 @@ public class HiveClientConfig
 
     public int getHdfsCacheReplicationFactor()
     { return hdfsCacheReplication; }
+
+    @NotNull
+    public DataSize getParquetMaxReadBlockSize()
+    {
+        return parquetMaxReadBlockSize;
+    }
+
+    @Config("hive.parquet.max-read-block-size")
+    public HiveClientConfig setParquetMaxReadBlockSize(DataSize parquetMaxReadBlockSize)
+    {
+        this.parquetMaxReadBlockSize = parquetMaxReadBlockSize;
+        return this;
+    }
 }
