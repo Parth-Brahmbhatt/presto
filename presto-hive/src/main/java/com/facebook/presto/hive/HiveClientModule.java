@@ -18,6 +18,7 @@ import com.facebook.presto.hive.orc.DwrfPageSourceFactory;
 import com.facebook.presto.hive.orc.OrcPageSourceFactory;
 import com.facebook.presto.hive.parquet.ParquetPageSourceFactory;
 import com.facebook.presto.hive.rcfile.RcFilePageSourceFactory;
+import com.facebook.presto.hive.util.HiveFileIterator;
 import com.facebook.presto.spi.connector.ConnectorNodePartitioningProvider;
 import com.facebook.presto.spi.connector.ConnectorPageSinkProvider;
 import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
@@ -110,6 +111,9 @@ public class HiveClientModule
         configBinder(binder).bindConfig(OrcFileWriterConfig.class);
         fileWriterFactoryBinder.addBinding().to(OrcFileWriterFactory.class).in(Scopes.SINGLETON);
         fileWriterFactoryBinder.addBinding().to(RcFileFileWriterFactory.class).in(Scopes.SINGLETON);
+
+        binder.bind(PrestoHdfsCacheStats.class).toInstance(HiveFileIterator.getHdfsCacheStats());
+        newExporter(binder).export(PrestoHdfsCacheStats.class).as(generatedNameOf(PrestoHdfsCache.class, connectorId));
     }
 
     @ForHiveClient

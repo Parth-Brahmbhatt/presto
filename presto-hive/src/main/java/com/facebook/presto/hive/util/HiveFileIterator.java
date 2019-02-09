@@ -16,6 +16,7 @@ package com.facebook.presto.hive.util;
 import com.facebook.presto.hive.DirectoryLister;
 import com.facebook.presto.hive.NamenodeStats;
 import com.facebook.presto.hive.PrestoHdfsCache;
+import com.facebook.presto.hive.PrestoHdfsCacheStats;
 import com.facebook.presto.spi.PrestoException;
 import com.google.common.collect.AbstractIterator;
 import io.airlift.stats.TimeStat;
@@ -54,6 +55,13 @@ public class HiveFileIterator
     private Iterator<LocatedFileStatus> remoteIterator = Collections.emptyIterator();
     private final PrestoHdfsCache prestoHdfsCache;
     private final boolean isHdfsDeployed;
+
+    private static final PrestoHdfsCacheStats STATS = new PrestoHdfsCacheStats();
+
+    public static PrestoHdfsCacheStats getHdfsCacheStats()
+    {
+        return STATS;
+    }
 
     public HiveFileIterator(
             Path path,
@@ -101,9 +109,14 @@ public class HiveFileIterator
                 if (isHdfsDeployed) {
                     try {
                         Path s3Path = status.getPath();
+                        STATS.newFileRead();
                         Path s3OrHdfsPath = prestoHdfsCache.getHdfsPathOrCopyToHdfs(s3Path);
                         if (!s3OrHdfsPath.equals(s3Path)) {
                             status = prestoHdfsCache.getLocatedStatus(s3OrHdfsPath);
+                            STATS.newFileReadFromHDFS();
+                        }
+                        else {
+                            STATS.newFileReadFromS3();
                         }
                     }
                     catch (IOException ignored) {
