@@ -75,14 +75,20 @@ class IcebergUtil
 
     public Table getIcebergTable(String catalog, String database, String tableName, Configuration configuration)
     {
-        configuration.set(NETFLIX_METACAT_HOST, config.getMetastoreRestEndpoint());
+        setRequiredConfigs(configuration);
         return getMetaStoreTables(configuration, catalog).load(database, tableName);
     }
 
     public MetacatTables getMetaStoreTables(Configuration configuration, String catalog)
     {
-        configuration.set(NETFLIX_METACAT_HOST, config.getMetastoreRestEndpoint());
+        setRequiredConfigs(configuration);
         return new MetacatTables(configuration, APP_NAME, catalog);
+    }
+
+    private void setRequiredConfigs(Configuration configuration)
+    {
+        configuration.set(NETFLIX_METACAT_HOST, config.getMetastoreRestEndpoint());
+        configuration.set(HIVE_WAREHOUSE_DIR, config.getMetastoreWarehoseDir());
     }
 
     public final List<HiveColumnHandle> getColumns(Schema schema, PartitionSpec spec, TypeManager typeManager)
@@ -134,9 +140,9 @@ class IcebergUtil
         return icebergLocation.endsWith(PATH_SEPERATOR) ? icebergLocation + DATA_DIR_NAME : icebergLocation + PATH_SEPERATOR + DATA_DIR_NAME;
     }
 
-    public final String getTablePath(String schemaName, String tableName, Configuration configuration)
+    public final String getTablePath(String schemaName, String tableName)
     {
-        return new Path(new Path(configuration.get(HIVE_WAREHOUSE_DIR), String.format("%s.db", schemaName)), tableName).toString();
+        return new Path(new Path(config.getMetastoreWarehoseDir(), String.format("%s.db", schemaName)), tableName).toString();
     }
 
     public final FileFormat getFileFormat(Table table)

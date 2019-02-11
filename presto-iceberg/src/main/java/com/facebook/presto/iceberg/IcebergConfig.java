@@ -15,13 +15,11 @@ package com.facebook.presto.iceberg;
 
 import io.airlift.configuration.Config;
 
-/**
- * Created by parth on 2/23/18.
- */
 public class IcebergConfig
 {
     private String metastoreRestEndpoint;
     private String metacatCatalogName;
+    private String metastoreWarehoseDir;
 
     public String getMetastoreRestEndpoint()
     {
@@ -43,5 +41,16 @@ public class IcebergConfig
     public void setMetacatCatalogName(String metacatCatalogName)
     {
         this.metacatCatalogName = metacatCatalogName;
+    }
+
+    public String getMetastoreWarehoseDir()
+    {
+        return metastoreWarehoseDir;
+    }
+
+    @Config("iceberg.metastore-warehouse-dir")
+    public void setMetastoreWarehoseDir(String metastoreWarehoseDir)
+    {
+        this.metastoreWarehoseDir = metastoreWarehoseDir;
     }
 }

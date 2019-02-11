@@ -16,6 +16,8 @@ package com.facebook.presto.iceberg;
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HiveWrittenPartitions;
+import com.facebook.presto.hive.LocationHandle;
+import com.facebook.presto.hive.LocationService;
 import com.facebook.presto.hive.TransactionalMetadata;
 import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.hive.metastore.Table;
@@ -89,6 +91,7 @@ public class IcebergMetadata
     private IcebergConfig icebergConfig;
     private IcebergUtil icebergUtil;
     private Transaction transaction;
+    private final LocationService locationService;
 
     public IcebergMetadata(
             SemiTransactionalHiveMetastore metastore,
@@ -96,7 +99,7 @@ public class IcebergMetadata
             TypeManager typeManager,
             JsonCodec<CommitTaskData> jsonCodec,
             IcebergConfig icebergConfig,
-            IcebergUtil icebergUtil)
+            IcebergUtil icebergUtil, LocationService locationService)
     {
         this.hdfsEnvironment = hdfsEnvironment;
         this.typeManager = typeManager;
@@ -104,6 +107,7 @@ public class IcebergMetadata
         this.jsonCodec = jsonCodec;
         this.icebergConfig = icebergConfig;
         this.icebergUtil = icebergUtil;
+        this.locationService = locationService;
     }
 
     @Override
@@ -280,12 +284,14 @@ public class IcebergMetadata
         //TODO see if there is a way to store this as transaction state.
         this.transaction = table.beginCreate(schema, partitionSpec, schemaName, tableName);
         final List<HiveColumnHandle> hiveColumnHandles = icebergUtil.getColumns(schema, partitionSpec, typeManager);
+        LocationHandle locationHandle = locationService.forNewTable(metastore, session, schemaName, tableName);
+        Path targetPath = locationService.getQueryWriteInfo(locationHandle).getTargetPath();
         return new IcebergInsertTableHandle(
                 schemaName,
                 tableName,
                 SchemaParser.toJson(transaction.table().schema()),
                 hiveColumnHandles,
-                icebergUtil.getDataPath(icebergUtil.getTablePath(schemaName, tableName, configuration)),
+                targetPath.toString(),
                 FileFormat.PARQUET);
     }
 
