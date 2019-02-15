@@ -18,7 +18,6 @@ import com.facebook.presto.hive.HiveType;
 import com.facebook.presto.hive.HiveTypeTranslator;
 import com.facebook.presto.hive.TypeTranslator;
 import com.facebook.presto.iceberg.type.TypeConveter;
-import com.facebook.presto.spi.type.TimestampType;
 import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.collect.ImmutableList;
 import com.netflix.iceberg.FileFormat;
@@ -43,6 +42,10 @@ import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
+import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
+import static com.facebook.presto.hive.HiveType.HIVE_LONG;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
@@ -58,6 +61,8 @@ class IcebergUtil
 
     public static final String NETFLIX_METACAT_HOST = "netflix.metacat.host";
     public static final String APP_NAME = "presto-" + System.getenv("stack");
+    public static final String SNAPSHOT_ID = "$snapshot_id";
+    public static final String SNAPSHOT_TIMESTAMP_MS = "$snapshot_timestamp_ms";
 
     private final IcebergConfig config;
 
@@ -116,13 +121,16 @@ class IcebergUtil
             builder.add(columnHandle);
         }
 
+        builder.add(new HiveColumnHandle(SNAPSHOT_ID, HIVE_LONG, BIGINT.getTypeSignature(), columnIndex++, SYNTHESIZED, Optional.empty()));
+        builder.add(new HiveColumnHandle(SNAPSHOT_TIMESTAMP_MS, HIVE_LONG, BIGINT.getTypeSignature(), columnIndex++, SYNTHESIZED, Optional.empty()));
+
         return builder.build();
     }
 
     public final com.facebook.presto.spi.type.Type coerceForHive(com.facebook.presto.spi.type.Type prestoType)
     {
         if (prestoType.equals(TIMESTAMP_WITH_TIME_ZONE)) {
-            return TimestampType.TIMESTAMP;
+            return TIMESTAMP;
         }
         return prestoType;
     }

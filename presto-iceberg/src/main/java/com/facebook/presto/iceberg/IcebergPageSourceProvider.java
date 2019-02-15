@@ -18,7 +18,7 @@ import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSource;
-import com.facebook.presto.hive.HivePageSourceProvider;
+import com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping;
 import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.hive.parquet.ParquetPageSource;
 import com.facebook.presto.memory.context.AggregatedMemoryContext;
@@ -36,6 +36,7 @@ import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.TypeManager;
+import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -47,6 +48,8 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.schema.MessageType;
 import org.joda.time.DateTimeZone;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
 
 import javax.inject.Inject;
 
@@ -67,6 +70,8 @@ import static com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping.buil
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetTupleDomain;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetType;
+import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_ID;
+import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_TIMESTAMP_MS;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getColumnIO;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getDescriptors;
 import static com.facebook.presto.parquet.predicate.PredicateUtils.buildPredicate;
@@ -82,6 +87,7 @@ public class IcebergPageSourceProvider
     private final TypeManager typeManager;
     private final HiveClientConfig hiveClientConfig;
     private FileFormatDataSourceStats fileFormatDataSourceStats;
+    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("yyyy-M-d H:m:s.SSS");
 
     @Inject
     public IcebergPageSourceProvider(
@@ -103,7 +109,7 @@ public class IcebergPageSourceProvider
             ConnectorSplit split,
             List<ColumnHandle> columns)
     {
-        IcebergSplit icebergSplit = (IcebergSplit) split;
+        final IcebergSplit icebergSplit = (IcebergSplit) split;
         final Path path = new Path(icebergSplit.getPath());
         final long start = icebergSplit.getStart();
         final long length = icebergSplit.getLength();
@@ -122,11 +128,13 @@ public class IcebergPageSourceProvider
                 hiveClientConfig.getParquetMaxReadBlockSize(),
                 typeManager,
                 icebergSplit.getEffectivePredicate(),
-                ((IcebergSplit) split).getPartitionKeys(),
-                fileFormatDataSourceStats);
+                icebergSplit.getPartitionKeys(),
+                fileFormatDataSourceStats,
+                icebergSplit.getSnapshotId(),
+                icebergSplit.getSnapshotTimestamp());
     }
 
-    public static ConnectorPageSource createParquetPageSource(
+    public ConnectorPageSource createParquetPageSource(
             HdfsEnvironment hdfsEnvironment,
             String user,
             Configuration configuration,
@@ -140,7 +148,9 @@ public class IcebergPageSourceProvider
             TypeManager typeManager,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             List<HivePartitionKey> partitionKeys,
-            FileFormatDataSourceStats fileFormatDataSourceStats)
+            FileFormatDataSourceStats fileFormatDataSourceStats,
+            Long snapshotId,
+            Long snapshotTimeStamp)
     {
         AggregatedMemoryContext systemMemoryContext = AggregatedMemoryContext.newSimpleAggregatedMemoryContext();
 
@@ -190,11 +200,16 @@ public class IcebergPageSourceProvider
                     systemMemoryContext,
                     maxReadBlockSize);
 
-            List<HivePageSourceProvider.ColumnMapping> columnMappings = buildColumnMappings(partitionKeys, parquetColumns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty());
+            final ImmutableList.Builder<ColumnMapping> mappingBuilder = new ImmutableList.Builder<>();
+            mappingBuilder.addAll(buildColumnMappings(partitionKeys, parquetColumns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty()));
+
+            setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_ID, columns), String.valueOf(snapshotId));
+            setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_TIMESTAMP_MS, columns), String.valueOf(snapshotTimeStamp));
+
             final List<HiveColumnHandle> regularColumns = parquetColumns.stream().filter(c -> c.getColumnType() == REGULAR).collect(toList());
 
             return new HivePageSource(
-                    columnMappings,
+                    mappingBuilder.build(),
                     Optional.empty(),
                     DateTimeZone.UTC,
                     typeManager,
@@ -236,16 +251,31 @@ public class IcebergPageSourceProvider
      * @param parquetSchema
      * @return columns with iceberg column names replaced with parquet column names.
      */
-    private static List<HiveColumnHandle> convertToParquetNames(List<HiveColumnHandle> columns, Map<String, Integer> icebergNameToId, MessageType parquetSchema)
+    private List<HiveColumnHandle> convertToParquetNames(List<HiveColumnHandle> columns, Map<String, Integer> icebergNameToId, MessageType parquetSchema)
     {
         final List<org.apache.parquet.schema.Type> fields = parquetSchema.getFields();
         final List<HiveColumnHandle> result = new ArrayList<>();
         for (HiveColumnHandle column : columns) {
-            Integer parquetId = icebergNameToId.get(column.getName());
-            //we default to parquet name when no match is found to support migrated tables, this should be controlled by a config.
-            final String parquetName = fields.stream().filter(f -> f.getId() != null && f.getId().intValue() == parquetId).map(m -> m.getName()).findFirst().orElse(column.getName());
-            result.add(new HiveColumnHandle(parquetName, column.getHiveType(), column.getTypeSignature(), column.getHiveColumnIndex(), column.getColumnType(), column.getComment()));
+            if (!column.isHidden()) {
+                Integer parquetId = icebergNameToId.get(column.getName());
+                //we default to parquet name when no match is found to support migrated tables, this should be controlled by a config.
+                final String parquetName = fields.stream().filter(f -> f.getId() != null && f.getId().intValue() == parquetId).map(m -> m.getName()).findFirst().orElse(column.getName());
+                result.add(new HiveColumnHandle(parquetName, column.getHiveType(), column.getTypeSignature(), column.getHiveColumnIndex(), column.getColumnType(), column.getComment()));
+            }
         }
         return result;
+    }
+
+    private final Optional<HiveColumnHandle> getColumnHandle(String columnName, List<HiveColumnHandle> columns)
+    {
+        // Assumes the call is only made for columns that are always present
+        return columns.stream().filter(columnHandle -> columnHandle.getName().equals(columnName)).findFirst();
+    }
+
+    private void setIfPresent(ImmutableList.Builder<ColumnMapping> mappingBuilder, Optional<HiveColumnHandle> columnHandle, String value)
+    {
+        if (columnHandle.isPresent()) {
+            mappingBuilder.add(ColumnMapping.prefilled(columnHandle.get(), value, Optional.empty()));
+        }
     }
 }

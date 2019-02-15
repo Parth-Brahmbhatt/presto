@@ -85,6 +85,7 @@ import static com.facebook.presto.hive.HiveMetadata.getSourceTableNameForPartiti
 import static com.facebook.presto.hive.HiveMetadata.isPartitionsSystemTable;
 import static com.facebook.presto.hive.HiveTableProperties.getPartitionedBy;
 import static com.facebook.presto.hive.HiveUtil.schemaTableName;
+import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.netflix.iceberg.types.Types.NestedField.required;
@@ -532,19 +533,24 @@ public class IcebergMetadata
 
     private List<ColumnMetadata> getColumnMetadatas(com.netflix.iceberg.Table icebergTable)
     {
-        return icebergTable.schema().columns().stream()
+        final List<ColumnMetadata> columnMetadatas = icebergTable.schema().columns().stream()
                 .map(c -> new ColumnMetadata(c.name(), TypeConveter.convert(c.type(), typeManager)))
                 .collect(toList());
+        columnMetadatas.add(new ColumnMetadata(IcebergUtil.SNAPSHOT_ID, BIGINT, null, true));
+        columnMetadatas.add(new ColumnMetadata(IcebergUtil.SNAPSHOT_TIMESTAMP_MS, BIGINT, null, true));
+        return columnMetadatas;
     }
 
     private List<Types.NestedField> toIceberg(List<ColumnMetadata> columns)
     {
         List<Types.NestedField> icebergColumns = new ArrayList<>();
         for (ColumnMetadata column : columns) {
-            final String name = column.getName();
-            final Type type = column.getType();
-            final com.netflix.iceberg.types.Type icebergType = TypeConveter.convert(type);
-            icebergColumns.add(required(icebergColumns.size(), name, icebergType));
+            if (!column.isHidden()) {
+                final String name = column.getName();
+                final Type type = column.getType();
+                final com.netflix.iceberg.types.Type icebergType = TypeConveter.convert(type);
+                icebergColumns.add(required(icebergColumns.size(), name, icebergType));
+            }
         }
         return icebergColumns;
     }
