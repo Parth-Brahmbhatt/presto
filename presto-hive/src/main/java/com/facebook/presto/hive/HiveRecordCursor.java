@@ -19,6 +19,7 @@ import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.type.DecimalType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
+import com.facebook.presto.spi.type.VarbinaryType;
 import com.google.common.annotations.VisibleForTesting;
 import io.airlift.slice.Slice;
 import org.joda.time.DateTimeZone;
@@ -52,8 +53,10 @@ import static com.facebook.presto.spi.type.IntegerType.INTEGER;
 import static com.facebook.presto.spi.type.RealType.REAL;
 import static com.facebook.presto.spi.type.SmallintType.SMALLINT;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
+import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.facebook.presto.spi.type.TinyintType.TINYINT;
 import static com.facebook.presto.spi.type.Varchars.isVarcharType;
+import static io.airlift.slice.Slices.utf8Slice;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -142,13 +145,19 @@ public class HiveRecordCursor
                     longs[columnIndex] = datePartitionKey(columnValue, name);
                 }
                 else if (TIMESTAMP.equals(type)) {
-                    longs[columnIndex] = timestampPartitionKey(columnValue, hiveStorageTimeZone, name);
+                    longs[columnIndex] = timestampPartitionKey(columnValue, hiveStorageTimeZone, name, false);
+                }
+                else if (TIMESTAMP_WITH_TIME_ZONE.equals(type)) {
+                    longs[columnIndex] = timestampPartitionKey(columnValue, hiveStorageTimeZone, name, true);
                 }
                 else if (isShortDecimal(type)) {
                     longs[columnIndex] = shortDecimalPartitionKey(columnValue, (DecimalType) type, name);
                 }
                 else if (isLongDecimal(type)) {
                     slices[columnIndex] = longDecimalPartitionKey(columnValue, (DecimalType) type, name);
+                }
+                else if (type.equals(VarbinaryType.VARBINARY)) {
+                    slices[columnIndex] = utf8Slice(columnValue);
                 }
                 else {
                     throw new PrestoException(NOT_SUPPORTED, format("Unsupported column type %s for prefilled column: %s", type.getDisplayName(), name));

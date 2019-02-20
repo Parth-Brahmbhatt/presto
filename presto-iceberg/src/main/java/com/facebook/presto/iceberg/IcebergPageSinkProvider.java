@@ -21,6 +21,8 @@ import com.facebook.presto.spi.ConnectorSession;
 import com.facebook.presto.spi.connector.ConnectorPageSinkProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.type.TypeManager;
+import com.netflix.iceberg.PartitionSpecParser;
+import com.netflix.iceberg.Schema;
 import com.netflix.iceberg.SchemaParser;
 import io.airlift.json.JsonCodec;
 import org.apache.hadoop.fs.Path;
@@ -55,8 +57,10 @@ public class IcebergPageSinkProvider
     {
         final IcebergInsertTableHandle tableHandle = (IcebergInsertTableHandle) insertTableHandle;
         final HdfsEnvironment.HdfsContext hdfsContext = new HdfsEnvironment.HdfsContext(session, tableHandle.getSchemaName(), tableHandle.getTableName());
+        final Schema schema = SchemaParser.fromJson(tableHandle.getSchemaAsJson());
         return new IcebergPageSink(
-                SchemaParser.fromJson(tableHandle.getSchemaAsJson()),
+                schema,
+                PartitionSpecParser.fromJson(schema, tableHandle.getPartitionSpecAsJson()),
                 tableHandle.getFilePrefix(),
                 hdfsEnvironment.getConfiguration(hdfsContext, new Path(tableHandle.getFilePrefix())),
                 tableHandle.getInputColumns(),
