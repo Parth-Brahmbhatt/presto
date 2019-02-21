@@ -50,6 +50,8 @@ public final class MetadataUtil
 {
     private static final Logger log = Logger.get(MetadataUtil.class);
 
+    private static final String PARTITIONS_TABLE_SUFFIX = "$partitions";
+
     private MetadataUtil() {}
 
     public static void checkTableName(String catalogName, Optional<String> schemaName, Optional<String> tableName)
@@ -137,7 +139,7 @@ public final class MetadataUtil
         }
 
         List<String> parts = Lists.reverse(name.getParts());
-        String objectName = parts.get(0);
+        String originalTableName = parts.get(0);
         String schemaName = (parts.size() > 1) ? parts.get(1) : session.getSchema().orElseThrow(() ->
                 new SemanticException(SCHEMA_NOT_SPECIFIED, node, "Schema must be specified when session schema is not set"));
         String catalogName = (parts.size() > 2) ? parts.get(2) : session.getCatalog().orElseThrow(() ->
@@ -159,18 +161,24 @@ public final class MetadataUtil
                         .build();
                 try {
                     final String metacatCatalogName = metacatCatalogMapping.get(catalogName);
-                    final TableDto table = client.getApi().getTable(metacatCatalogName, schemaName, objectName, true, true, false);
+
+                    String tableName = originalTableName;
+                    if (isPartitionsSystemTable(originalTableName)) {
+                        tableName = getSourceTableNameForPartitionsTable(originalTableName);
+                    }
+
+                    final TableDto table = client.getApi().getTable(metacatCatalogName, schemaName, tableName, true, true, false);
                     final Map<String, String> metadata = table.getMetadata();
                     if (metadata.containsKey("table_type") && metadata.get("table_type").equalsIgnoreCase("iceberg")) {
                         if (hiveToIcebergCatalogMapping.containsKey(catalogName)) {
                             log.info("Rewriting the catalog from %s to %s ", catalogName, hiveToIcebergCatalogMapping.get(catalogName));
-                            return new QualifiedObjectName(hiveToIcebergCatalogMapping.get(catalogName), schemaName, objectName);
+                            return new QualifiedObjectName(hiveToIcebergCatalogMapping.get(catalogName), schemaName, originalTableName);
                         }
                     }
                     else {
                         if (icebergCatalogMapping.containsKey(catalogName)) {
                             log.info("Rewriting the catalog from %s to %s ", catalogName, icebergCatalogMapping.get(catalogName));
-                            return new QualifiedObjectName(icebergCatalogMapping.get(catalogName), schemaName, objectName);
+                            return new QualifiedObjectName(icebergCatalogMapping.get(catalogName), schemaName, originalTableName);
                         }
                     }
                 }
@@ -179,7 +187,18 @@ public final class MetadataUtil
                 }
             }
         }
-        return new QualifiedObjectName(catalogName, schemaName, objectName);
+        return new QualifiedObjectName(catalogName, schemaName, originalTableName);
+    }
+
+    public static boolean isPartitionsSystemTable(String tableName)
+    {
+        return tableName.endsWith(PARTITIONS_TABLE_SUFFIX) && tableName.length() > PARTITIONS_TABLE_SUFFIX.length();
+    }
+
+    public static String getSourceTableNameForPartitionsTable(String tableName)
+    {
+        checkArgument(isPartitionsSystemTable(tableName), "not a partitions table name");
+        return tableName.substring(0, tableName.length() - PARTITIONS_TABLE_SUFFIX.length());
     }
 
     public static QualifiedName createQualifiedName(QualifiedObjectName name)
