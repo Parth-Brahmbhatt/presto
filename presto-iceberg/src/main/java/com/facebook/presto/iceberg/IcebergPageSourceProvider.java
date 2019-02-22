@@ -47,9 +47,8 @@ import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.Type;
 import org.joda.time.DateTimeZone;
-import org.joda.time.format.DateTimeFormat;
-import org.joda.time.format.DateTimeFormatter;
 
 import javax.inject.Inject;
 
@@ -62,6 +61,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Properties;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
 import static com.facebook.presto.hive.HiveErrorCode.HIVE_CANNOT_OPEN_SPLIT;
@@ -87,7 +88,6 @@ public class IcebergPageSourceProvider
     private final TypeManager typeManager;
     private final HiveClientConfig hiveClientConfig;
     private FileFormatDataSourceStats fileFormatDataSourceStats;
-    private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormat.forPattern("yyyy-M-d H:m:s.SSS");
 
     @Inject
     public IcebergPageSourceProvider(
@@ -157,7 +157,7 @@ public class IcebergPageSourceProvider
         ParquetDataSource dataSource = null;
         try {
             FileSystem fileSystem = hdfsEnvironment.getFileSystem(user, path, configuration);
-            final long fileSize = fileSystem.getFileStatus(path).getLen(); // TODO do this on coordinator
+            final long fileSize = fileSystem.getFileStatus(path).getLen();
             dataSource = buildHdfsParquetDataSource(fileSystem, path, start, length, fileSize, fileFormatDataSourceStats);
             ParquetMetadata parquetMetadata = MetadataReader.readFooter(fileSystem, path, fileSize);
             FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
@@ -201,12 +201,15 @@ public class IcebergPageSourceProvider
                     maxReadBlockSize);
 
             final ImmutableList.Builder<ColumnMapping> mappingBuilder = new ImmutableList.Builder<>();
-            mappingBuilder.addAll(buildColumnMappings(partitionKeys, parquetColumns, Collections.EMPTY_LIST, Collections.emptyMap(), path, OptionalInt.empty()));
+            mappingBuilder.addAll(buildColumnMappings(partitionKeys,
+                    columns,
+                    Collections.EMPTY_LIST,
+                    Collections.emptyMap(),
+                    path,
+                    OptionalInt.empty()));
 
             setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_ID, columns), String.valueOf(snapshotId));
             setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_TIMESTAMP_MS, columns), String.valueOf(snapshotTimeStamp));
-
-            final List<HiveColumnHandle> regularColumns = parquetColumns.stream().filter(c -> c.getColumnType() == REGULAR).collect(toList());
 
             return new HivePageSource(
                     mappingBuilder.build(),
@@ -219,7 +222,7 @@ public class IcebergPageSourceProvider
                             messageColumnIO,
                             typeManager,
                             new Properties(),
-                            regularColumns,
+                            columns.stream().filter(c -> c.getColumnType() == REGULAR).collect(toList()),
                             effectivePredicate,
                             useParquetColumnNames));
         }
@@ -244,8 +247,8 @@ public class IcebergPageSourceProvider
 
     /**
      * This method maps the iceberg column names to corresponding parquet column names by matching their Ids rather then relying on name or index.
-     * If no id match is found, it will return the original column name as is.
-     *
+     * If the parquet schema has at least one field with no Id then the method assumes this is a case of a migrated hive table and it will return the original column name as is.
+     * If all the parquet schema fields have the Id but the iceberg schema ids do not match any column the method throws an exception indicating data issue.
      * @param columns iceberg columns
      * @param icebergNameToId
      * @param parquetSchema
@@ -253,14 +256,32 @@ public class IcebergPageSourceProvider
      */
     private List<HiveColumnHandle> convertToParquetNames(List<HiveColumnHandle> columns, Map<String, Integer> icebergNameToId, MessageType parquetSchema)
     {
+        // TODO do it at top level rather than repeating this work per split.
         final List<org.apache.parquet.schema.Type> fields = parquetSchema.getFields();
         final List<HiveColumnHandle> result = new ArrayList<>();
-        for (HiveColumnHandle column : columns) {
-            if (!column.isHidden()) {
-                Integer parquetId = icebergNameToId.get(column.getName());
-                //we default to parquet name when no match is found to support migrated tables, this should be controlled by a config.
-                final String parquetName = fields.stream().filter(f -> f.getId() != null && f.getId().intValue() == parquetId).map(m -> m.getName()).findFirst().orElse(column.getName());
-                result.add(new HiveColumnHandle(parquetName, column.getHiveType(), column.getTypeSignature(), column.getHiveColumnIndex(), column.getColumnType(), column.getComment()));
+        Map<Integer, String> icebergIdToName = icebergNameToId.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+        Map<String, HiveColumnHandle> columnNameToColumnHandle = columns.stream()
+                .collect(Collectors.toMap(HiveColumnHandle::getName, Function.identity()));
+
+        for (int index = 0; index < fields.size(); index++) {
+            final Type field = fields.get(index);
+            if (field.getId() != null) {
+                final String parquetName = field.getName();
+                final String icebergColumnName = icebergIdToName.get(field.getId().intValue());
+                if (icebergColumnName == null) {
+                    // the column is present in parquet but dropped from iceberg schema, so ignoring the column.
+                    continue;
+                }
+                else {
+                    final HiveColumnHandle column = columnNameToColumnHandle.get(icebergColumnName);
+                    result.add(new HiveColumnHandle(parquetName, column.getHiveType(), column.getTypeSignature(), column.getHiveColumnIndex(), column.getColumnType(), column.getComment()));
+                }
+            }
+            else {
+                // the column id is null, so this is a case of migrated table, we will make the assumption that no
+                // columns were dropped so we will just return the column at same index.
+                result.add(columns.get(index));
             }
         }
         return result;
