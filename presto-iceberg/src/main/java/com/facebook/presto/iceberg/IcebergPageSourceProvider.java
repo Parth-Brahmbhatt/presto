@@ -18,7 +18,6 @@ import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveClientConfig;
 import com.facebook.presto.hive.HiveColumnHandle;
 import com.facebook.presto.hive.HivePageSource;
-import com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping;
 import com.facebook.presto.hive.HivePartitionKey;
 import com.facebook.presto.hive.parquet.ParquetPageSource;
 import com.facebook.presto.memory.context.AggregatedMemoryContext;
@@ -36,7 +35,6 @@ import com.facebook.presto.spi.connector.ConnectorPageSourceProvider;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.TypeManager;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.units.DataSize;
 import org.apache.hadoop.conf.Configuration;
@@ -71,8 +69,6 @@ import static com.facebook.presto.hive.HivePageSourceProvider.ColumnMapping.buil
 import static com.facebook.presto.hive.parquet.HdfsParquetDataSource.buildHdfsParquetDataSource;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetTupleDomain;
 import static com.facebook.presto.hive.parquet.ParquetPageSourceFactory.getParquetType;
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_ID;
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_TIMESTAMP_MS;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getColumnIO;
 import static com.facebook.presto.parquet.ParquetTypeUtils.getDescriptors;
 import static com.facebook.presto.parquet.predicate.PredicateUtils.buildPredicate;
@@ -129,9 +125,7 @@ public class IcebergPageSourceProvider
                 typeManager,
                 icebergSplit.getEffectivePredicate(),
                 icebergSplit.getPartitionKeys(),
-                fileFormatDataSourceStats,
-                icebergSplit.getSnapshotId(),
-                icebergSplit.getSnapshotTimestamp());
+                fileFormatDataSourceStats);
     }
 
     public ConnectorPageSource createParquetPageSource(
@@ -148,9 +142,7 @@ public class IcebergPageSourceProvider
             TypeManager typeManager,
             TupleDomain<HiveColumnHandle> effectivePredicate,
             List<HivePartitionKey> partitionKeys,
-            FileFormatDataSourceStats fileFormatDataSourceStats,
-            Long snapshotId,
-            Long snapshotTimeStamp)
+            FileFormatDataSourceStats fileFormatDataSourceStats)
     {
         AggregatedMemoryContext systemMemoryContext = AggregatedMemoryContext.newSimpleAggregatedMemoryContext();
 
@@ -201,16 +193,12 @@ public class IcebergPageSourceProvider
                     systemMemoryContext,
                     maxReadBlockSize);
 
-            final ImmutableList.Builder<ColumnMapping> mappingBuilder = new ImmutableList.Builder<>();
-            mappingBuilder.addAll(buildColumnMappings(partitionKeys,
+            final List columnMappings = buildColumnMappings(partitionKeys,
                     columns.stream().filter(columnHandle -> !columnHandle.isHidden()).collect(toList()),
                     Collections.EMPTY_LIST,
                     Collections.emptyMap(),
                     path,
-                    OptionalInt.empty()));
-
-            setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_ID, columns), String.valueOf(snapshotId));
-            setIfPresent(mappingBuilder, getColumnHandle(SNAPSHOT_TIMESTAMP_MS, columns), String.valueOf(snapshotTimeStamp));
+                    OptionalInt.empty());
 
             // This transformation is solely done so columns that are renames can be read. ParquetPageSource tries to get
             // column type from column name and because the name in parquet file is different than the iceberg column name
@@ -222,7 +210,7 @@ public class IcebergPageSourceProvider
                     .collect(toList());
 
             return new HivePageSource(
-                    mappingBuilder.build(),
+                    columnMappings,
                     Optional.empty(),
                     DateTimeZone.UTC,
                     typeManager,
@@ -295,18 +283,5 @@ public class IcebergPageSourceProvider
             }
         }
         return builder.build();
-    }
-
-    private final Optional<HiveColumnHandle> getColumnHandle(String columnName, List<HiveColumnHandle> columns)
-    {
-        // Assumes the call is only made for columns that are always present
-        return columns.stream().filter(columnHandle -> columnHandle.getName().equals(columnName)).findFirst();
-    }
-
-    private void setIfPresent(ImmutableList.Builder<ColumnMapping> mappingBuilder, Optional<HiveColumnHandle> columnHandle, String value)
-    {
-        if (columnHandle.isPresent()) {
-            mappingBuilder.add(ColumnMapping.prefilled(columnHandle.get(), value, Optional.empty()));
-        }
     }
 }

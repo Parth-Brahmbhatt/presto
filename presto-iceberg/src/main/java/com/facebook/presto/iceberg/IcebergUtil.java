@@ -19,7 +19,6 @@ import com.facebook.presto.hive.HiveTypeTranslator;
 import com.facebook.presto.hive.TypeTranslator;
 import com.facebook.presto.iceberg.type.TypeConveter;
 import com.facebook.presto.spi.ConnectorSession;
-import com.facebook.presto.spi.predicate.Domain;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.type.TypeManager;
 import com.google.common.collect.ImmutableList;
@@ -47,13 +46,11 @@ import java.util.stream.IntStream;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.REGULAR;
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
-import static com.facebook.presto.hive.HiveType.HIVE_LONG;
-import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.facebook.presto.spi.type.TimestampType.TIMESTAMP;
 import static com.facebook.presto.spi.type.TimestampWithTimeZoneType.TIMESTAMP_WITH_TIME_ZONE;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
 import static com.netflix.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
+import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
 
 class IcebergUtil
@@ -67,8 +64,6 @@ class IcebergUtil
 
     public static final String NETFLIX_METACAT_HOST = "netflix.metacat.host";
     public static final String APP_NAME = "presto-" + System.getenv("stack");
-    public static final String SNAPSHOT_ID = "$snapshot_id";
-    public static final String SNAPSHOT_TIMESTAMP_MS = "$snapshot_timestamp_ms";
 
     private final IcebergConfig config;
 
@@ -108,7 +103,7 @@ class IcebergUtil
         int columnIndex = 0;
         ImmutableList.Builder builder = ImmutableList.builder();
         final List<PartitionField> partitionFields = getIdentityPartitions(spec).entrySet().stream().map(e -> e.getKey()).collect(Collectors.toList());
-        final Map<String, PartitionField> partitionColumnNames = partitionFields.stream().collect(toMap(PartitionField::name, Function.identity()));
+        final Map<String, PartitionField> partitionColumnNames = partitionFields.stream().collect(toMap(PartitionField::name, identity()));
         // Iceberg may or may not store identity columns in data file and the identity transformations have the same name as data column.
         // So we remove the identity columns from the set of regular columns which does not work with some of presto validation.
 
@@ -126,10 +121,6 @@ class IcebergUtil
             final HiveColumnHandle columnHandle = new HiveColumnHandle(column.name(), hiveType, prestoType.getTypeSignature(), columnIndex++, columnType, Optional.empty());
             builder.add(columnHandle);
         }
-
-        builder.add(new HiveColumnHandle(SNAPSHOT_ID, HIVE_LONG, BIGINT.getTypeSignature(), columnIndex++, SYNTHESIZED, Optional.empty()));
-        builder.add(new HiveColumnHandle(SNAPSHOT_TIMESTAMP_MS, HIVE_LONG, BIGINT.getTypeSignature(), columnIndex++, SYNTHESIZED, Optional.empty()));
-
         return builder.build();
     }
 
@@ -169,10 +160,6 @@ class IcebergUtil
 
     public final TableScan getTableScan(ConnectorSession session, TupleDomain<HiveColumnHandle> predicates, Long snapshotId, Long snapshotTimestamp, Table icebergTable)
     {
-        if (snapshotId != null && snapshotTimestamp != null) {
-            throw new IllegalArgumentException(String.format("Either specify a predicate on %s or %s but not both", SNAPSHOT_ID, SNAPSHOT_TIMESTAMP_MS));
-        }
-
         final Expression expression = ExpressionConverter.toIceberg(predicates, session);
         TableScan tableScan = icebergTable.newScan().filter(expression);
 
@@ -185,27 +172,8 @@ class IcebergUtil
         return tableScan;
     }
 
-    public final Long getPredicateValue(TupleDomain<HiveColumnHandle> predicates, String columnName)
-    {
-        if (predicates.isNone() || predicates.isAll()) {
-            return null;
-        }
-
-        return predicates.getDomains().map(hiveColumnHandleDomainMap -> {
-            final List<Domain> snapShotDomains = hiveColumnHandleDomainMap.entrySet().stream()
-                    .filter(hiveColumnHandleDomainEntry -> hiveColumnHandleDomainEntry.getKey().getName().equals(columnName))
-                    .map(hiveColumnHandleDomainEntry -> hiveColumnHandleDomainEntry.getValue())
-                    .collect(Collectors.toList());
-
-            if (snapShotDomains.isEmpty()) {
-                return null;
-            }
-
-            if (snapShotDomains.size() > 1 || !snapShotDomains.get(0).isSingleValue()) {
-                throw new IllegalArgumentException(String.format("Only %s = value check is allowed on column = %s", columnName, columnName));
-            }
-
-            return (Long) snapShotDomains.get(0).getSingleValue();
-        }).orElse(null);
+    public final Map<Integer, Type> getIdToTypeMapping(Schema schema) {
+        return schema.columns().stream()
+                .collect(Collectors.toMap(f -> f.fieldId(), f -> schema.findType(f.fieldId())));
     }
 }

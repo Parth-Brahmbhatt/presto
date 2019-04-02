@@ -163,6 +163,7 @@ public final class MetadataUtil
                     final String metacatCatalogName = metacatCatalogMapping.get(catalogName);
 
                     String tableName = originalTableName;
+                    //TODO HANDLE THE PARTITIONING and @ shit here
                     if (isPartitionsSystemTable(originalTableName)) {
                         tableName = getSourceTableNameForPartitionsTable(originalTableName);
                     }

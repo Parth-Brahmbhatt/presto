@@ -34,9 +34,6 @@ import javax.inject.Inject;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_ID;
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_TIMESTAMP_MS;
-
 public class IcebergSplitManager
         implements ConnectorSplitManager
 {
@@ -73,17 +70,19 @@ public class IcebergSplitManager
                 .map(m -> TupleDomain.withColumnDomains(m)).orElse(TupleDomain.none());
         Configuration configuration = hdfsEnvironment.getConfiguration(new HdfsEnvironment.HdfsContext(session, tbl.getDatabase()), new Path("file:///tmp"));
         Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getDatabase(), tbl.getTableName(), configuration);
-        Long snapshotId = icebergUtil.getPredicateValue(predicates, SNAPSHOT_ID);
-        Long snapshotTimestamp = icebergUtil.getPredicateValue(predicates, SNAPSHOT_TIMESTAMP_MS);
-        TableScan tableScan = icebergUtil.getTableScan(session, predicates, snapshotId, snapshotTimestamp, icebergTable);
+        Long snapshotId = null;
+        Long snapshotTimestampMillis = null;
+        if (tbl.getAtId() != null) {
+            if (icebergTable.snapshot(tbl.getAtId()) != null) {
+                snapshotId = tbl.getAtId();
+            }
+            else {
+                snapshotTimestampMillis = tbl.getAtId();
+            }
+        }
 
-        // We set these values to current snapshotId to ensure if user projects these columns they get the actual values and not null when these columns are not specified
-        // in predicates.
-        Long currentSnapshotId = icebergTable.currentSnapshot() != null ? icebergTable.currentSnapshot().snapshotId() : null;
-        Long currentSnapshotTimestamp = icebergTable.currentSnapshot() != null ? icebergTable.currentSnapshot().timestampMillis() : null;
+        TableScan tableScan = icebergUtil.getTableScan(session, predicates, snapshotId, snapshotTimestampMillis, icebergTable);
 
-        snapshotId = snapshotId != null ? snapshotId : currentSnapshotId;
-        snapshotTimestamp = snapshotTimestamp != null ? snapshotTimestamp : currentSnapshotTimestamp;
         // TODO Use residual. Right now there is no way to propagate residual to presto but at least we can
         // propagate it at split level so the parquet pushdown can leverage it.
         final IcebergSplitSource icebergSplitSource = new IcebergSplitSource(
@@ -96,9 +95,7 @@ public class IcebergSplitManager
                 hdfsEnvironment,
                 typeTranslator,
                 typeRegistry,
-                tbl.getNameToColumnHandle(),
-                snapshotId,
-                snapshotTimestamp);
+                tbl.getNameToColumnHandle());
         return new ClassLoaderSafeConnectorSplitSource(icebergSplitSource, Thread.currentThread().getContextClassLoader());
     }
 }

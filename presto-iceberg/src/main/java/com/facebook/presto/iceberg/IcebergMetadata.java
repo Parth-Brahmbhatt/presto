@@ -15,11 +15,13 @@ package com.facebook.presto.iceberg;
 
 import com.facebook.presto.hive.HdfsEnvironment;
 import com.facebook.presto.hive.HiveColumnHandle;
-import com.facebook.presto.hive.HiveUtil;
+import com.facebook.presto.hive.HiveType;
+import com.facebook.presto.hive.HiveTypeTranslator;
 import com.facebook.presto.hive.HiveWrittenPartitions;
 import com.facebook.presto.hive.LocationHandle;
 import com.facebook.presto.hive.LocationService;
 import com.facebook.presto.hive.TransactionalMetadata;
+import com.facebook.presto.hive.TypeTranslator;
 import com.facebook.presto.hive.metastore.SemiTransactionalHiveMetastore;
 import com.facebook.presto.hive.metastore.Table;
 import com.facebook.presto.iceberg.type.TypeConveter;
@@ -36,44 +38,58 @@ import com.facebook.presto.spi.ConnectorTableLayoutResult;
 import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.Constraint;
 import com.facebook.presto.spi.InMemoryRecordSet;
+import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.SchemaTablePrefix;
+import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.SystemTable;
 import com.facebook.presto.spi.TableNotFoundException;
+import com.facebook.presto.spi.block.ArrayBlockBuilder;
+import com.facebook.presto.spi.block.Block;
+import com.facebook.presto.spi.block.RowBlockBuilder;
+import com.facebook.presto.spi.block.SingleRowBlockWriter;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
-import com.facebook.presto.spi.predicate.NullableValue;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.statistics.ComputedStatistics;
 import com.facebook.presto.spi.statistics.TableStatistics;
+import com.facebook.presto.spi.type.ArrayType;
+import com.facebook.presto.spi.type.RowType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
-import com.google.common.base.Splitter;
+import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.netflix.iceberg.AppendFiles;
 import com.netflix.iceberg.BaseMetastoreTables;
+import com.netflix.iceberg.DataFile;
 import com.netflix.iceberg.DataFiles;
 import com.netflix.iceberg.FileFormat;
+import com.netflix.iceberg.FileScanTask;
 import com.netflix.iceberg.PartitionSpec;
 import com.netflix.iceberg.PartitionSpecParser;
-import com.netflix.iceberg.ScanSummary;
 import com.netflix.iceberg.Schema;
 import com.netflix.iceberg.SchemaParser;
+import com.netflix.iceberg.StructLike;
 import com.netflix.iceberg.TableScan;
 import com.netflix.iceberg.Transaction;
 import com.netflix.iceberg.hadoop.HadoopInputFile;
+import com.netflix.iceberg.io.CloseableIterable;
 import com.netflix.iceberg.types.Types;
+import com.netflix.iceberg.util.StructLikeWrapper;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.joda.time.DateTimeZone;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -82,14 +98,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY;
-import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.SYNTHESIZED;
-import static com.facebook.presto.hive.HiveMetadata.getSourceTableNameForPartitionsTable;
-import static com.facebook.presto.hive.HiveMetadata.isPartitionsSystemTable;
 import static com.facebook.presto.hive.HiveTableProperties.getPartitionedBy;
 import static com.facebook.presto.hive.HiveType.HIVE_LONG;
 import static com.facebook.presto.hive.HiveUtil.schemaTableName;
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_ID;
-import static com.facebook.presto.iceberg.IcebergUtil.SNAPSHOT_TIMESTAMP_MS;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.netflix.iceberg.types.Types.NestedField.optional;
@@ -115,6 +126,7 @@ public class IcebergMetadata
     private IcebergUtil icebergUtil;
     private Transaction transaction;
     private final LocationService locationService;
+    private static final TypeTranslator hiveTypeTranslator = new HiveTypeTranslator();
 
     public IcebergMetadata(
             SemiTransactionalHiveMetastore metastore,
@@ -145,7 +157,7 @@ public class IcebergMetadata
         final Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
         if (table.isPresent()) {
             if (icebergUtil.isIcebergTable(table.get())) {
-                return new IcebergTableHandle(tableName.getSchemaName(), tableName.getTableName());
+                return IcebergTableHandle.parse(tableName.getTableName(), tableName.getSchemaName());
             }
             else {
                 throw new RuntimeException(String.format("%s is not an iceberg table please query using hive catalog", tableName));
@@ -157,41 +169,37 @@ public class IcebergMetadata
     @Override
     public Optional<SystemTable> getSystemTable(ConnectorSession session, SchemaTableName tableName)
     {
-        if (!isPartitionsSystemTable(tableName)) {
-            return Optional.empty();
-        }
+        IcebergTableHandle sourceTableHandle = IcebergTableHandle.parse(tableName.getTableName(), tableName.getSchemaName());
+        SchemaTableName sourceTableName = new SchemaTableName(tableName.getSchemaName(), sourceTableHandle.getTableName());
 
-        SchemaTableName sourceTableName = getSourceTableNameForPartitionsTable(tableName);
-        String schemaName = sourceTableName.getSchemaName();
-        IcebergTableHandle sourceTableHandle = getTableHandle(session, sourceTableName);
-        List<HiveColumnHandle> partitionColumns = getColumnHandles(session, sourceTableHandle)
-                .entrySet().stream().filter(e -> ((HiveColumnHandle) e.getValue()).isPartitionKey())
+        String schemaName = sourceTableHandle.getSchemaName();
+        Map<String, ColumnHandle> columnHandles = getColumnHandles(session, sourceTableHandle);
+        List<HiveColumnHandle> partitionColumns = columnHandles.entrySet().stream()
+                .filter(e -> ((HiveColumnHandle) e.getValue()).isPartitionKey())
                 .map(e -> (HiveColumnHandle) e.getValue())
                 .collect(Collectors.toList());
-
-        if (partitionColumns == null || partitionColumns.isEmpty()) {
-            return Optional.empty();
-        }
 
         List<ColumnMetadata> columnMetadatas = partitionColumns.stream()
                 .map(columnHandle -> getColumnMetadata(session, sourceTableHandle, columnHandle))
                 .collect(Collectors.toList());
-        // add the partition related columns.
-        columnMetadatas.add(new ColumnMetadata("record_count", BIGINT));
-        columnMetadatas.add(new ColumnMetadata("file_count", BIGINT));
-        columnMetadatas.add(new ColumnMetadata("total_size", BIGINT));
-        columnMetadatas.add(new ColumnMetadata(SNAPSHOT_ID, BIGINT, null, true));
-        columnMetadatas.add(new ColumnMetadata(SNAPSHOT_TIMESTAMP_MS, BIGINT, null, true));
+
+        // add the partition metrics related columns.
+        List<String> partitionMetrics = ImmutableList.of("record_count", "file_count", "total_size");
+        partitionMetrics.stream().forEach(metric -> columnMetadatas.add(new ColumnMetadata(metric, BIGINT)));
+
+        // add the min stats, max stats, null count stats
+        List<String> columnMetrics = ImmutableList.of("null_count", "min_values", "max_values");
+        ImmutableList<RowType.Field> metricRow = ImmutableList.of(new RowType.Field(Optional.of("column_name"), VarcharType.VARCHAR), new RowType.Field(Optional.of("value"), VarcharType.VARCHAR));
+        ArrayType columnMetricType = new ArrayType(RowType.from(metricRow));
+        columnMetrics.stream().forEach(metric -> columnMetadatas.add(new ColumnMetadata(metric, columnMetricType)));
 
         Map<Integer, HiveColumnHandle> fieldIdToColumnHandle =
                 IntStream.range(0, partitionColumns.size())
                         .boxed()
                         .collect(Collectors.toMap(identity(), partitionColumns::get));
-        fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle("record_count", HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty()));
-        fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle("file_count", HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty()));
-        fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle("total_size", HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty()));
-        fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(SNAPSHOT_ID, HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), SYNTHESIZED, Optional.empty()));
-        fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(SNAPSHOT_TIMESTAMP_MS, HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), SYNTHESIZED, Optional.empty()));
+
+        partitionMetrics.stream().forEach(metric -> fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(metric, HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty())));
+        columnMetrics.stream().forEach(metric -> fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(metric, HiveType.toHiveType(hiveTypeTranslator, columnMetricType), columnMetricType.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty())));
 
         List<Type> partitionColumnTypes = columnMetadatas.stream()
                 .map(ColumnMetadata::getType)
@@ -199,7 +207,6 @@ public class IcebergMetadata
 
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
-        Splitter.MapSplitter splitter = Splitter.on("/").withKeyValueSeparator('=');
 
         return Optional.of(new SystemTable()
         {
@@ -223,43 +230,104 @@ public class IcebergMetadata
                     Thread.currentThread().setContextClassLoader(classLoader);
                     TupleDomain<HiveColumnHandle> predicates = constraint.transform(fieldIdToColumnHandle::get);
                     com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), schemaName, sourceTableName.getTableName(), getConfiguration(session, schemaName));
-                    Long snapshotId = icebergUtil.getPredicateValue(predicates, SNAPSHOT_ID);
-                    Long snapshotTimestamp = icebergUtil.getPredicateValue(predicates, SNAPSHOT_TIMESTAMP_MS);
-                    TableScan tableScan = icebergUtil.getTableScan(session, predicates, snapshotId, snapshotTimestamp, icebergTable);
-
-                    // We set these values to current snapshotId to ensure if user projects these columns they get the actual values and not null when these columns are not specified
-                    // in predicates.
-                    Long currentSnapshotId = icebergTable.currentSnapshot() != null ? icebergTable.currentSnapshot().snapshotId() : null;
-                    Long currentSnapshotTimestamp = icebergTable.currentSnapshot() != null ? icebergTable.currentSnapshot().timestampMillis() : null;
-
-                    snapshotId = snapshotId != null ? snapshotId : currentSnapshotId;
-                    snapshotTimestamp = snapshotTimestamp != null ? snapshotTimestamp : currentSnapshotTimestamp;
-
-                    final Map<String, ScanSummary.PartitionMetrics> partitionToMetrics = ScanSummary.of(tableScan).build();
-                    final ImmutableList.Builder<List<Object>> records = new ImmutableList.Builder();
-                    for (Map.Entry<String, ScanSummary.PartitionMetrics> partitionMetricsEntry : partitionToMetrics.entrySet()) {
-                        ImmutableList.Builder<Object> rowBuilder = ImmutableList.builder();
-                        Map<String, String> partitionKeyVal = splitter.split(partitionMetricsEntry.getKey());
-                        for (HiveColumnHandle partitionColumn : partitionColumns) {
-                            final Type type = typeManager.getType(partitionColumn.getTypeSignature());
-                            NullableValue value = HiveUtil.parsePartitionValue(partitionColumn.getName(), partitionKeyVal.get(partitionColumn.getName()), type, DateTimeZone.UTC);
-                            rowBuilder.add(value.getValue());
+                    final Map<Integer, com.netflix.iceberg.types.Type> idToTypeMapping = icebergUtil.getIdToTypeMapping(icebergTable.schema());
+                    Long snapshotId = null;
+                    Long snapshotTimestampMills = null;
+                    Map<StructLikeWrapper, PartitionTable.Partition> partitions = new HashMap<>();
+                    if (sourceTableHandle.getAtId() != null) {
+                        if (icebergTable.snapshot(sourceTableHandle.getAtId()) != null) {
+                            snapshotId = sourceTableHandle.getAtId();
                         }
-                        rowBuilder.add(partitionMetricsEntry.getValue().recordCount());
-                        rowBuilder.add(partitionMetricsEntry.getValue().fileCount());
-                        rowBuilder.add(partitionMetricsEntry.getValue().totalSize());
-                        rowBuilder.add(snapshotId);
-                        rowBuilder.add(snapshotTimestamp);
+                        else {
+                            snapshotTimestampMills = sourceTableHandle.getAtId();
+                        }
+                    }
+                    TableScan tableScan = icebergUtil.getTableScan(session, predicates, snapshotId, snapshotTimestampMills, icebergTable);
+
+                    try(CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
+                        for (FileScanTask fileScanTask : fileScanTasks) {
+
+                            final DataFile dataFile = fileScanTask.file();
+                            final StructLike partitionStruct = dataFile.partition();
+                            final StructLikeWrapper partitionWrapper = StructLikeWrapper.wrap(partitionStruct);
+                            if (!partitions.containsKey(partitionWrapper)) {
+                                PartitionTable.Partition partition = new PartitionTable.Partition(partitionStruct,
+                                        dataFile.recordCount(),
+                                        dataFile.fileSizeInBytes(),
+                                        PartitionTable.toMap(dataFile.lowerBounds(), idToTypeMapping),
+                                        PartitionTable.toMap(dataFile.upperBounds(), idToTypeMapping),
+                                        dataFile.nullValueCounts());
+                                partitions.put(partitionWrapper, partition);
+                                continue;
+                            }
+
+                            PartitionTable.Partition partition = partitions.get(partitionWrapper);
+                            partition.incrementFileCount();
+                            partition.incrementRecordCount(dataFile.recordCount());
+                            partition.incrementSize(dataFile.fileSizeInBytes());
+                            partition.updateMin(PartitionTable.toMap(dataFile.lowerBounds(), idToTypeMapping));
+                            partition.updateMax(PartitionTable.toMap(dataFile.upperBounds(), idToTypeMapping));
+                            partition.updateNullCount(dataFile.nullValueCounts());
+                        }
+                    } catch (IOException e) {
+                        new PrestoException(StandardErrorCode.GENERIC_INTERNAL_ERROR, e);
+                    }
+
+
+                    final List<Class> partitionColumnClass = icebergTable.spec().fields().stream()
+                            .map(field -> field.transform().getResultType(icebergTable.schema().findType(field.sourceId())).asPrimitiveType().typeId().javaClass())
+                            .collect(Collectors.toList());
+                    final ImmutableList.Builder<List<Object>> records = new ImmutableList.Builder();
+                    for (PartitionTable.Partition partition : partitions.values()) {
+                        ImmutableList.Builder<Object> rowBuilder = ImmutableList.builder();
+                        final StructLike values = partition.getValues();
+                        // add data for partition columns
+                        for (int index = 0 ; index < partitionColumnClass.size() ; index++) {
+                            rowBuilder.add(partition.getValues().get(index, partitionColumnClass.get(index)));
+                        }
+
+                        // add the top level metrics.
+                        rowBuilder.add(partition.getRecordCount());
+                        rowBuilder.add(partition.getFileCount());
+                        rowBuilder.add(partition.getSize());
+
+                        // add column level metrics
+                        rowBuilder.add(getBlock(icebergTable, partition, partition.getNullCounts()));
+                        rowBuilder.add(getBlock(icebergTable, partition, partition.getMinValues()));
+                        rowBuilder.add(getBlock(icebergTable, partition, partition.getMaxValues()));
+
                         records.add(rowBuilder.build());
                     }
+
                     return new InMemoryRecordSet(partitionColumnTypes, records.build()).cursor();
                 }
                 finally {
                     Thread.currentThread().setContextClassLoader(cl);
                 }
             }
+
+            private Block getBlock(com.netflix.iceberg.Table icebergTable, PartitionTable.Partition partition, Map<Integer, ?> map)
+            {
+                ArrayBlockBuilder blockBuilder = new ArrayBlockBuilder(RowType.from(metricRow), null, map.size());
+                for (Map.Entry<Integer, ?> entry : map.entrySet()) {
+                    RowBlockBuilder rowBlockBuilder = (RowBlockBuilder) RowType.from(metricRow).createBlockBuilder(null, 1);
+                    SingleRowBlockWriter singleRowBlockBuilder = rowBlockBuilder.beginBlockEntry();
+                    final String columnName = icebergTable.schema().findColumnName(entry.getKey());
+                    singleRowBlockBuilder.writeBytes(Slices.utf8Slice(columnName), 0, Slices.utf8Slice(columnName).length());
+                    singleRowBlockBuilder.closeEntry();
+
+                    // TODO tostring will break need to handle different types
+                    singleRowBlockBuilder.writeBytes(Slices.utf8Slice(entry.getValue().toString()), 0, Slices.utf8Slice(entry.getValue().toString()).length());
+                    singleRowBlockBuilder.closeEntry();
+
+                    rowBlockBuilder.closeEntry();
+                    columnMetricType.writeObject(blockBuilder, rowBlockBuilder.build());
+                }
+                return blockBuilder.build();
+            }
         });
     }
+
 
     @Override
     public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session,
@@ -272,8 +340,12 @@ public class IcebergMetadata
                 .map(cols -> cols.stream().map(col -> HiveColumnHandle.class.cast(col))
                         .collect(toMap(HiveColumnHandle::getName, identity())))
                 .orElse(emptyMap());
-        // TODO Optimization opportunity if we provide proper IcebergTableLayoutHandle.
-        final IcebergTableLayoutHandle icebergTableLayoutHandle = new IcebergTableLayoutHandle(tableHandle.getSchemaName(), tableHandle.getTableName(), constraint.getSummary(), nameToHiveColumnHandleMap);
+        final IcebergTableLayoutHandle icebergTableLayoutHandle = new IcebergTableLayoutHandle(
+                tableHandle.getSchemaName(),
+                tableHandle.getTableName(),
+                tableHandle.getAtId(),
+                constraint.getSummary(),
+                nameToHiveColumnHandleMap);
         return ImmutableList.of(new ConnectorTableLayoutResult(new ConnectorTableLayout(icebergTableLayoutHandle), constraint.getSummary()));
     }
 
@@ -313,7 +385,13 @@ public class IcebergMetadata
         final Configuration configuration = getConfiguration(session, tbl.getSchemaName());
         final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getSchemaName(), tbl.getTableName(), configuration);
         final List<HiveColumnHandle> columns = icebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
-        return columns.stream().collect(toMap(col -> col.getName(), identity()));
+        // We use linked hashmap to preserve column order which is required for system table to work.
+        Map<String, ColumnHandle> columnHandleMap = new LinkedHashMap<>();
+        for (HiveColumnHandle column : columns) {
+            columnHandleMap.put(column.getName(), column);
+        }
+
+        return columnHandleMap;
     }
 
     @Override
@@ -574,8 +652,6 @@ public class IcebergMetadata
         final List<ColumnMetadata> columnMetadatas = icebergTable.schema().columns().stream()
                 .map(c -> new ColumnMetadata(c.name(), TypeConveter.convert(c.type(), typeManager)))
                 .collect(toList());
-        columnMetadatas.add(new ColumnMetadata(SNAPSHOT_ID, BIGINT, null, true));
-        columnMetadatas.add(new ColumnMetadata(IcebergUtil.SNAPSHOT_TIMESTAMP_MS, BIGINT, null, true));
         return columnMetadatas;
     }
 

@@ -71,8 +71,6 @@ public class IcebergSplitSource
     private final HdfsEnvironment.HdfsContext hdfsContext;
     private boolean closed;
     private Map<String, HiveColumnHandle> columnNameToHiveColumnHandleMap;
-    private final Long snapshotId;
-    private final Long snapshotTimestamp;
 
     public IcebergSplitSource(String database,
             String tableName,
@@ -83,9 +81,7 @@ public class IcebergSplitSource
             HdfsEnvironment hdfsEnvironment,
             TypeTranslator typeTranslator,
             TypeManager typeRegistry,
-            Map<String, HiveColumnHandle> columnNameToHiveColumnHandleMap,
-            Long snapshotId,
-            Long snapshotTimestamp)
+            Map<String, HiveColumnHandle> columnNameToHiveColumnHandleMap)
     {
         this.database = database;
         this.tableName = tableName;
@@ -94,8 +90,6 @@ public class IcebergSplitSource
         this.session = session;
         this.tableSchema = schema;
         this.hdfsEnvironment = hdfsEnvironment;
-        this.snapshotId = snapshotId;
-        this.snapshotTimestamp = snapshotTimestamp;
         this.hdfsContext = new HdfsEnvironment.HdfsContext(session, database, tableName);
         this.typeTranslator = typeTranslator;
         this.typeRegistry = typeRegistry;
@@ -124,9 +118,7 @@ public class IcebergSplitSource
                         // wasting CPU cycles on reader side evaluating condition that we know will always be true.
                         predicates,
                         partitionKeys,
-                        HiveSessionProperties.isForceLocalScheduling(this.session),
-                        snapshotId,
-                        snapshotTimestamp));
+                        HiveSessionProperties.isForceLocalScheduling(this.session)));
 
                 maxSize--;
             }
