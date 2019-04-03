@@ -45,20 +45,19 @@ import com.facebook.presto.spi.SchemaTablePrefix;
 import com.facebook.presto.spi.StandardErrorCode;
 import com.facebook.presto.spi.SystemTable;
 import com.facebook.presto.spi.TableNotFoundException;
-import com.facebook.presto.spi.block.ArrayBlockBuilder;
 import com.facebook.presto.spi.block.Block;
-import com.facebook.presto.spi.block.RowBlockBuilder;
-import com.facebook.presto.spi.block.SingleRowBlockWriter;
+import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.connector.ConnectorMetadata;
 import com.facebook.presto.spi.connector.ConnectorOutputMetadata;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
+import com.facebook.presto.spi.function.OperatorType;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.facebook.presto.spi.statistics.ComputedStatistics;
 import com.facebook.presto.spi.statistics.TableStatistics;
-import com.facebook.presto.spi.type.ArrayType;
-import com.facebook.presto.spi.type.RowType;
+import com.facebook.presto.spi.type.MapType;
 import com.facebook.presto.spi.type.Type;
 import com.facebook.presto.spi.type.TypeManager;
+import com.facebook.presto.spi.type.TypeUtils;
 import com.facebook.presto.spi.type.VarcharType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -81,11 +80,11 @@ import com.netflix.iceberg.types.Types;
 import com.netflix.iceberg.util.StructLikeWrapper;
 import io.airlift.json.JsonCodec;
 import io.airlift.slice.Slice;
-import io.airlift.slice.Slices;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -101,6 +100,8 @@ import static com.facebook.presto.hive.HiveColumnHandle.ColumnType.PARTITION_KEY
 import static com.facebook.presto.hive.HiveTableProperties.getPartitionedBy;
 import static com.facebook.presto.hive.HiveType.HIVE_LONG;
 import static com.facebook.presto.hive.HiveUtil.schemaTableName;
+import static com.facebook.presto.spi.block.MethodHandleUtil.compose;
+import static com.facebook.presto.spi.block.MethodHandleUtil.nativeValueGetter;
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.netflix.iceberg.types.Types.NestedField.optional;
@@ -189,8 +190,8 @@ public class IcebergMetadata
 
         // add the min stats, max stats, null count stats
         List<String> columnMetrics = ImmutableList.of("null_count", "min_values", "max_values");
-        ImmutableList<RowType.Field> metricRow = ImmutableList.of(new RowType.Field(Optional.of("column_name"), VarcharType.VARCHAR), new RowType.Field(Optional.of("value"), VarcharType.VARCHAR));
-        ArrayType columnMetricType = new ArrayType(RowType.from(metricRow));
+
+        MapType columnMetricType = getMapType();
         columnMetrics.stream().forEach(metric -> columnMetadatas.add(new ColumnMetadata(metric, columnMetricType)));
 
         Map<Integer, HiveColumnHandle> fieldIdToColumnHandle =
@@ -292,9 +293,9 @@ public class IcebergMetadata
                         rowBuilder.add(partition.getSize());
 
                         // add column level metrics
-                        rowBuilder.add(getBlock(icebergTable, partition, partition.getNullCounts()));
-                        rowBuilder.add(getBlock(icebergTable, partition, partition.getMinValues()));
-                        rowBuilder.add(getBlock(icebergTable, partition, partition.getMaxValues()));
+                        rowBuilder.add(getBlock(icebergTable.schema(), partition.getNullCounts()));
+                        rowBuilder.add(getBlock(icebergTable.schema(), partition.getMinValues()));
+                        rowBuilder.add(getBlock(icebergTable.schema(), partition.getMaxValues()));
 
                         records.add(rowBuilder.build());
                     }
@@ -306,28 +307,38 @@ public class IcebergMetadata
                 }
             }
 
-            private Block getBlock(com.netflix.iceberg.Table icebergTable, PartitionTable.Partition partition, Map<Integer, ?> map)
+            private Block getBlock(Schema schema, Map<Integer, ?> map)
             {
-                ArrayBlockBuilder blockBuilder = new ArrayBlockBuilder(RowType.from(metricRow), null, map.size());
+                BlockBuilder mapBlockBuilder = columnMetricType.createBlockBuilder(null, 1);
+                BlockBuilder builder = mapBlockBuilder.beginBlockEntry();
+
                 for (Map.Entry<Integer, ?> entry : map.entrySet()) {
-                    RowBlockBuilder rowBlockBuilder = (RowBlockBuilder) RowType.from(metricRow).createBlockBuilder(null, 1);
-                    SingleRowBlockWriter singleRowBlockBuilder = rowBlockBuilder.beginBlockEntry();
-                    final String columnName = icebergTable.schema().findColumnName(entry.getKey());
-                    singleRowBlockBuilder.writeBytes(Slices.utf8Slice(columnName), 0, Slices.utf8Slice(columnName).length());
-                    singleRowBlockBuilder.closeEntry();
-
-                    // TODO tostring will break need to handle different types
-                    singleRowBlockBuilder.writeBytes(Slices.utf8Slice(entry.getValue().toString()), 0, Slices.utf8Slice(entry.getValue().toString()).length());
-                    singleRowBlockBuilder.closeEntry();
-
-                    rowBlockBuilder.closeEntry();
-                    columnMetricType.writeObject(blockBuilder, rowBlockBuilder.build());
+                    TypeUtils.writeNativeValue(VarcharType.VARCHAR, builder, schema.findColumnName(entry.getKey()));
+                    // TODO Need to do better than toString.
+                    TypeUtils.writeNativeValue(VarcharType.VARCHAR, builder, entry.getValue().toString());
                 }
-                return blockBuilder.build();
+
+                mapBlockBuilder.closeEntry();
+                return columnMetricType.getObject(mapBlockBuilder, 0);
             }
         });
     }
 
+    private MapType getMapType() {
+        Type keyType = VarcharType.VARCHAR;
+        MethodHandle keyNativeEquals = typeManager.resolveOperator(OperatorType.EQUAL, ImmutableList.of(keyType, keyType));
+        MethodHandle keyBlockNativeEquals = compose(keyNativeEquals, nativeValueGetter(keyType));
+        MethodHandle keyBlockEquals = compose(keyNativeEquals, nativeValueGetter(keyType), nativeValueGetter(keyType));
+        MethodHandle keyNativeHashCode = typeManager.resolveOperator(OperatorType.HASH_CODE, ImmutableList.of(keyType));
+        MethodHandle keyBlockHashCode = compose(keyNativeHashCode, nativeValueGetter(keyType));
+        return new MapType(
+                keyType,
+                VarcharType.VARCHAR,
+                keyBlockNativeEquals,
+                keyBlockEquals,
+                keyNativeHashCode,
+                keyBlockHashCode);
+    }
 
     @Override
     public List<ConnectorTableLayoutResult> getTableLayouts(ConnectorSession session,
