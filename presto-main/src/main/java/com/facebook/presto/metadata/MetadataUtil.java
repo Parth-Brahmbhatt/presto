@@ -35,6 +35,8 @@ import io.airlift.log.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.facebook.presto.spi.StandardErrorCode.SYNTAX_ERROR;
@@ -50,7 +52,8 @@ public final class MetadataUtil
 {
     private static final Logger log = Logger.get(MetadataUtil.class);
 
-    private static final String PARTITIONS_TABLE_SUFFIX = "$partitions";
+    private static final Pattern TABLE_PATTERN = Pattern.compile(
+            "(?<table>[^$@]+)(?:@(?<ver1>[^$]*))?(?:\\$(?<type>[^@]*)(?:@(?<ver2>.*))?)?");
 
     private MetadataUtil() {}
 
@@ -161,12 +164,7 @@ public final class MetadataUtil
                         .build();
                 try {
                     final String metacatCatalogName = metacatCatalogMapping.get(catalogName);
-
-                    String tableName = originalTableName;
-                    //TODO HANDLE THE PARTITIONING and @ shit here
-                    if (isPartitionsSystemTable(originalTableName)) {
-                        tableName = getSourceTableNameForPartitionsTable(originalTableName);
-                    }
+                    String tableName = parseTableIdentifier(originalTableName);
 
                     final TableDto table = client.getApi().getTable(metacatCatalogName, schemaName, tableName, true, true, false);
                     final Map<String, String> metadata = table.getMetadata();
@@ -189,17 +187,6 @@ public final class MetadataUtil
             }
         }
         return new QualifiedObjectName(catalogName, schemaName, originalTableName);
-    }
-
-    public static boolean isPartitionsSystemTable(String tableName)
-    {
-        return tableName.endsWith(PARTITIONS_TABLE_SUFFIX) && tableName.length() > PARTITIONS_TABLE_SUFFIX.length();
-    }
-
-    public static String getSourceTableNameForPartitionsTable(String tableName)
-    {
-        checkArgument(isPartitionsSystemTable(tableName), "not a partitions table name");
-        return tableName.substring(0, tableName.length() - PARTITIONS_TABLE_SUFFIX.length());
     }
 
     public static QualifiedName createQualifiedName(QualifiedObjectName name)
@@ -280,6 +267,15 @@ public final class MetadataUtil
         public ConnectorTableMetadata build()
         {
             return new ConnectorTableMetadata(tableName, columns.build(), properties.build(), comment);
+        }
+    }
+
+    public static String parseTableIdentifier(String tableIdentifier) {
+        Matcher match = TABLE_PATTERN.matcher(tableIdentifier);
+        if (match.matches()) {
+            return match.group("table");
+        } else {
+            return tableIdentifier;
         }
     }
 }

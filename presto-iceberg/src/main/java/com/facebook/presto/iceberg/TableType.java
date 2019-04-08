@@ -16,8 +16,8 @@ package com.facebook.presto.iceberg;
 public enum TableType
 {
     DATA,
-    HISTORY,
-    SNAPSHOTS,
-    MANIFESTS,
+    HISTORY, // STILL to be implemented
+    SNAPSHOTS, // STILL to be implemented
+    MANIFESTS, // STILL to be implemented
     PARTITIONS
 }

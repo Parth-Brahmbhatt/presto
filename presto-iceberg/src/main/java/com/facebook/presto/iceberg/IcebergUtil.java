@@ -134,7 +134,7 @@ class IcebergUtil
 
     public static final Map<PartitionField, Integer> getIdentityPartitions(PartitionSpec partitionSpec)
     {
-        //TODO We are only treating identity column as partition columns as we do not want all other columns to be projectable or filterable.
+        //TODO We are only treating identity column as partition columns as we do not want all other partition transforms to be projectable or filterable.
         // Identity class is not public so no way to really identify if a transformation is identity transformation or not other than checking toString as of now.
         // Need to make changes to iceberg so we can identify transform in a better way.
         return IntStream.range(0, partitionSpec.fields().size())
@@ -170,10 +170,5 @@ class IcebergUtil
             tableScan = tableScan.asOfTime(snapshotTimestamp);
         }
         return tableScan;
-    }
-
-    public final Map<Integer, Type> getIdToTypeMapping(Schema schema) {
-        return schema.columns().stream()
-                .collect(Collectors.toMap(f -> f.fieldId(), f -> schema.findType(f.fieldId())));
     }
 }

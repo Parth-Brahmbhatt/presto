@@ -28,11 +28,12 @@ import com.facebook.presto.spi.block.Block;
 import com.facebook.presto.spi.block.BlockBuilder;
 import com.facebook.presto.spi.connector.ConnectorTransactionHandle;
 import com.facebook.presto.spi.predicate.TupleDomain;
+import com.facebook.presto.spi.type.DateTimeEncoding;
 import com.facebook.presto.spi.type.RowType;
+import com.facebook.presto.spi.type.TimeZoneKey;
 import com.facebook.presto.spi.type.TypeManager;
 import com.facebook.presto.spi.type.TypeUtils;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.netflix.iceberg.DataFile;
 import com.netflix.iceberg.FileScanTask;
 import com.netflix.iceberg.PartitionField;
@@ -50,16 +51,20 @@ import org.apache.hadoop.conf.Configuration;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static com.facebook.presto.spi.type.BigintType.BIGINT;
+import static java.util.function.Function.identity;
 
 public class PartitionTable
         implements SystemTable
@@ -74,12 +79,12 @@ public class PartitionTable
     private Table icebergTable;
     private Map<Integer, Type.PrimitiveType> idToTypeMapping;
     private List<Types.NestedField> nonPartitionPrimitiveColumns;
+    private List<com.facebook.presto.spi.type.Type> partitionColumnTypes;
     private List<com.facebook.presto.spi.type.Type> resultTypes;
     private List<com.facebook.presto.spi.type.RowType> columnMetricTypes;
 
     // TODO heck as system table calls do not have connector classloader
     private final ClassLoader connectorClassLoader = Thread.currentThread().getContextClassLoader();
-    ;
 
     public PartitionTable(IcebergTableHandle tableHandle, ConnectorSession session, IcebergUtil icebergUtil, Configuration configuration, IcebergConfig icebergConfig, TypeManager typeManager)
     {
@@ -110,8 +115,9 @@ public class PartitionTable
 
         ImmutableList.Builder<ColumnMetadata> columnMetadataBuilder = ImmutableList.builder();
 
-        ColumnMetadata partitionColumnsMetadata = getPartitionColumnsMetadata(partitionFields, icebergTable.schema());
-        columnMetadataBuilder.add(partitionColumnsMetadata);
+        List<ColumnMetadata> partitionColumnsMetadata = getPartitionColumnsMetadata(partitionFields, icebergTable.schema());
+        this.partitionColumnTypes = partitionColumnsMetadata.stream().map(m -> m.getType()).collect(Collectors.toList());
+        columnMetadataBuilder.addAll(partitionColumnsMetadata);
 
         Set<Integer> identityPartitionIds = icebergUtil.getIdentityPartitions(icebergTable.spec()).keySet().stream()
                 .map(partitionField -> partitionField.sourceId())
@@ -134,12 +140,11 @@ public class PartitionTable
         return new ConnectorTableMetadata(new SchemaTableName(tableHandle.getSchemaName(), tableHandle.getTableName()), columnMetadata);
     }
 
-    private final ColumnMetadata getPartitionColumnsMetadata(List<PartitionField> fields, Schema schema)
+    private final List<ColumnMetadata> getPartitionColumnsMetadata(List<PartitionField> fields, Schema schema)
     {
-        List<RowType.Field> partitionFields = fields.stream()
-                .map(field -> new RowType.Field(Optional.of(field.name()), TypeConveter.convert(field.transform().getResultType(schema.findType(field.sourceId())), typeManager)))
+        return fields.stream()
+                .map(field -> new ColumnMetadata(field.name(), TypeConveter.convert(field.transform().getResultType(schema.findType(field.sourceId())), typeManager)))
                 .collect(Collectors.toList());
-        return new ColumnMetadata("partition", RowType.from(partitionFields));
     }
 
     private final List<ColumnMetadata> getColumnMetadata(List<Types.NestedField> columns)
@@ -159,7 +164,7 @@ public class PartitionTable
         ClassLoader cl = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(connectorClassLoader);
-            TableScan tableScan = getTableScan(TupleDomain.all()); // TODO: Apply the actual filters.
+            TableScan tableScan = getTableScan(constraint);
             Map<StructLikeWrapper, Partition> partitions = getPartitions(tableScan);
             return buildRecordCursor(partitions, icebergTable.spec().fields());
         }
@@ -194,8 +199,8 @@ public class PartitionTable
                 partition.incrementFileCount();
                 partition.incrementRecordCount(dataFile.recordCount());
                 partition.incrementSize(dataFile.fileSizeInBytes());
-                partition.updateMin(toMap(dataFile.lowerBounds()));
-                partition.updateMax(toMap(dataFile.upperBounds()));
+                partition.updateMin(toMap(dataFile.lowerBounds()), dataFile.nullValueCounts(), dataFile.recordCount());
+                partition.updateMax(toMap(dataFile.upperBounds()), dataFile.nullValueCounts(), dataFile.recordCount());
                 partition.updateNullCount(dataFile.nullValueCounts());
             }
         }
@@ -208,17 +213,21 @@ public class PartitionTable
     private final RecordCursor buildRecordCursor(Map<StructLikeWrapper, Partition> partitions, List<PartitionField> partitionFields)
     {
         final ImmutableList.Builder<List<Object>> records = new ImmutableList.Builder();
-        List<Class> partitionColumnClass = partitionClasses(partitionFields);
-
+        List<Type> partitionTypes = partitionTypes(partitionFields);
+        List<? extends Class<?>> partitionColumnClass = partitionTypes.stream().map(type -> type.typeId().javaClass()).collect(Collectors.toList());
+        int columnCounts = partitionColumnTypes.size() + 3 + columnMetricTypes.size();
         for (PartitionTable.Partition partition : partitions.values()) {
-            ImmutableList.Builder<Object> rowBuilder = ImmutableList.builder();
+            List<Object> rows = new ArrayList<>(columnCounts);
+            StructLike partitionColumnValues = partition.getValues();
             // add data for partition columns
-            rowBuilder.add(getPartitionValuesBlock(partition.getValues(), partitionColumnClass));
+            for (int i = 0; i < partitionColumnTypes.size(); i++) {
+                rows.add(convert(partitionColumnValues.get(i, partitionColumnClass.get(i)), partitionTypes.get(i)));
+            }
 
             // add the top level metrics.
-            rowBuilder.add(partition.getRecordCount());
-            rowBuilder.add(partition.getFileCount());
-            rowBuilder.add(partition.getSize());
+            rows.add(partition.getRecordCount());
+            rows.add(partition.getFileCount());
+            rows.add(partition.getSize());
 
             // add column level metrics
             for (int i = 0; i < columnMetricTypes.size(); i++) {
@@ -227,25 +236,25 @@ public class PartitionTable
                 Object min = convert(partition.getMinValues().get(fieldId), type);
                 Object max = convert(partition.getMaxValues().get(fieldId), type);
                 Long nullCount = partition.getNullCounts().get(fieldId);
-                rowBuilder.add(getColumnMetricBlock(columnMetricTypes.get(i), min, max, nullCount));
+                rows.add(getColumnMetricBlock(columnMetricTypes.get(i), min, max, nullCount));
             }
 
-            records.add(rowBuilder.build());
+            records.add(rows);
         }
 
         return new InMemoryRecordSet(resultTypes, records.build()).cursor();
     }
 
-    private List<Class> partitionClasses(List<PartitionField> partitionFields)
+    private List<Type> partitionTypes(List<PartitionField> partitionFields)
     {
-        ImmutableList.Builder<Class> partitionClassesBuilder = ImmutableList.builder();
+        ImmutableList.Builder<Type> partitionTypeBuilder = ImmutableList.builder();
         for (int i = 0; i < partitionFields.size(); i++) {
             PartitionField partitionField = partitionFields.get(i);
             Type.PrimitiveType sourceType = idToTypeMapping.get(partitionField.sourceId());
-            Class<?> javaClass = partitionField.transform().getResultType(sourceType).typeId().javaClass();
-            partitionClassesBuilder.add(javaClass);
+            Type type = partitionField.transform().getResultType(sourceType);
+            partitionTypeBuilder.add(type);
         }
-        return partitionClassesBuilder.build();
+        return partitionTypeBuilder.build();
     }
 
     private Block getColumnMetricBlock(RowType columnMetricType, Object min, Object max, Long nullCount)
@@ -261,23 +270,14 @@ public class PartitionTable
         return columnMetricType.getObject(rowBlockBuilder, 0);
     }
 
-    private Block getPartitionValuesBlock(StructLike partition, List<Class> partitionClasses)
+    private final TableScan getTableScan(TupleDomain<Integer> constraint)
     {
-        com.facebook.presto.spi.type.RowType partitionValuesType = (RowType) resultTypes.get(0);
-        BlockBuilder rowBlockBuilder = partitionValuesType.createBlockBuilder(null, 1);
-        BlockBuilder builder = rowBlockBuilder.beginBlockEntry();
-        List<RowType.Field> fields = partitionValuesType.getFields();
+        List<HiveColumnHandle> partitionColumns = icebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
+        Map<Integer, HiveColumnHandle> fieldIdToColumnHandle = IntStream.range(0, partitionColumnTypes.size())
+                .boxed()
+                .collect(Collectors.toMap(identity(), partitionColumns::get));
+        TupleDomain<HiveColumnHandle> predicates = constraint.transform(fieldIdToColumnHandle::get);
 
-        for (int i = 0; i < fields.size(); i++) {
-            TypeUtils.writeNativeValue(fields.get(i).getType(), builder, partition.get(i, partitionClasses.get(i)));
-        }
-
-        rowBlockBuilder.closeEntry();
-        return partitionValuesType.getObject(rowBlockBuilder, 0);
-    }
-
-    private final TableScan getTableScan(TupleDomain<HiveColumnHandle> predicates)
-    {
         Long snapshotId = null;
         Long snapshotTimestampMills = null;
         if (tableHandle.getAtId() != null) {
@@ -293,23 +293,40 @@ public class PartitionTable
 
     private Map<Integer, Object> toMap(Map<Integer, ByteBuffer> idToMetricMap)
     {
-        ImmutableMap.Builder<Integer, Object> builder = ImmutableMap.builder();
+        Map<Integer, Object> map = new HashMap<>();
         for (Map.Entry<Integer, ByteBuffer> idToMetricEntry : idToMetricMap.entrySet()) {
             Integer id = idToMetricEntry.getKey();
             Type.PrimitiveType type = idToTypeMapping.get(id);
-            builder.put(id, Conversions.fromByteBuffer(type, idToMetricEntry.getValue()));
+            map.put(id, Conversions.fromByteBuffer(type, idToMetricEntry.getValue()));
         }
-        return builder.build();
+        return map;
     }
 
-    private static Object convert(Object value, Type type) {
-        if (type instanceof Types.StringType) {
+    private static Object convert(Object value, Type type)
+    {
+        if (value == null) {
+            return null;
+        }
+        else if (type instanceof Types.StringType) {
             return value.toString();
-        } else if (type instanceof Types.BinaryType) {
+        }
+        else if (type instanceof Types.BinaryType) {
+            // TODO the client sees the bytearray's tostring ouput instead of seeing actual bytes, needs to be fixed.
             ByteBuffer buffer = (ByteBuffer) value;
-            return buffer.get(new byte[buffer.remaining()]);
-        } else if (type instanceof Types.DecimalType) {
-            return value.toString(); //TODO handle decimal properly.
+            return buffer.array();
+        }
+        else if (type instanceof Types.TimestampType) {
+            final long utcMillis = TimeUnit.MICROSECONDS.toMillis((Long) value);
+            Types.TimestampType timestampType = (Types.TimestampType) type;
+            if (timestampType.shouldAdjustToUTC()) {
+                return DateTimeEncoding.packDateTimeWithZone(utcMillis, TimeZoneKey.UTC_KEY);
+            }
+            else {
+                return utcMillis;
+            }
+        }
+        else if (type instanceof Types.FloatType) {
+            return Float.floatToIntBits((Float) value);
         }
         return value;
     }
@@ -323,6 +340,7 @@ public class PartitionTable
         private Map<Integer, Object> minValues;
         private Map<Integer, Object> maxValues;
         private Map<Integer, Long> nullCounts;
+        private Set<Integer> corruptedStats;
 
         public Partition(StructLike values, long recordCount, long size, Map<Integer, Object> minValues, Map<Integer, Object> maxValues, Map<Integer, Long> nullCounts)
         {
@@ -332,7 +350,11 @@ public class PartitionTable
             this.size = size;
             this.minValues = minValues;
             this.maxValues = maxValues;
-            this.nullCounts = nullCounts;
+            // we are assuming if minValues is not present, max will be not be present either.
+            this.corruptedStats = nonPartitionPrimitiveColumns.stream()
+                    .map(field -> field.fieldId())
+                    .filter(id -> !minValues.containsKey(id) && (!nullCounts.containsKey(id) || nullCounts.get(id) != recordCount)).collect(Collectors.toSet());
+            this.nullCounts = nullCounts.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)); // original nullcounts is immutable
         }
 
         public StructLike getValues()
@@ -377,12 +399,12 @@ public class PartitionTable
 
         public void incrementFileCount()
         {
-            this.recordCount = this.fileCount + 1;
+            this.fileCount = this.fileCount + 1;
         }
 
         public void incrementSize(long numberOfBytes)
         {
-            this.recordCount = this.size + numberOfBytes;
+            this.size = this.size + numberOfBytes;
         }
 
         /**
@@ -393,36 +415,44 @@ public class PartitionTable
          * bound value is present => this is the normal case and bounds will be reported correctly
          */
 
-        public void updateMin(Map<Integer, Object> lowerBounds)
+        public void updateMin(Map<Integer, Object> lowerBounds, Map<Integer, Long> nullCounts, Long recordCount)
         {
-            Iterator<Map.Entry<Integer, Object>> iterator = minValues.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Integer, Object> entry = iterator.next();
-                Comparator<Object> comparator = Comparators.forType(PartitionTable.this.idToTypeMapping.get(entry.getKey()));
-                final Object potentialMin = lowerBounds.get(entry.getKey());
-                if (potentialMin == null) {
-                    // metric is missing so we remove it from
-                    iterator.remove();
-                }
-                else if (comparator.compare(potentialMin, entry.getValue()) > 0) {
-                    minValues.put(entry.getKey(), potentialMin);
-                }
-            }
+            updateStats(this.minValues, lowerBounds, nullCounts, recordCount, i -> (i > 0));
         }
 
-        public void updateMax(Map<Integer, Object> upperBounds)
+        public void updateMax(Map<Integer, Object> upperBounds, Map<Integer, Long> nullCounts, Long recordCount)
         {
-            Iterator<Map.Entry<Integer, Object>> iterator = maxValues.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Integer, Object> entry = iterator.next();
-                Comparator<Object> comparator = Comparators.forType(PartitionTable.this.idToTypeMapping.get(entry.getKey()));
-                final Object potentialMax = upperBounds.get(entry.getKey());
-                if (potentialMax == null) {
-                    // metric is missing so we remove it from
-                    iterator.remove();
+            updateStats(this.maxValues, upperBounds, nullCounts, recordCount, i -> (i < 0));
+        }
+
+        private void updateStats(Map<Integer, Object> current, Map<Integer, Object> newStat, Map<Integer, Long> nullCounts, Long recordCount, Predicate<Integer> predicate)
+        {
+            for (Types.NestedField column : nonPartitionPrimitiveColumns) {
+                int id = column.fieldId();
+
+                if (corruptedStats.contains(id)) {
+                    continue;
                 }
-                else if (comparator.compare(potentialMax, entry.getValue()) < 0) {
-                    minValues.put(entry.getKey(), potentialMax);
+
+                Object newValue = newStat.get(id);
+                // it is expected to not have min/max if all values are null for a column in the datafile and it is not a case of corrupted stats.
+                if (newValue == null) {
+                    if (nullCounts.get(id) == null || nullCounts.get(id) != recordCount) {
+                        current.remove(id);
+                        corruptedStats.add(id);
+                    }
+                    continue;
+                }
+
+                Object oldValue = current.get(id);
+                if (oldValue == null) {
+                    current.put(id, newValue);
+                }
+                else {
+                    Comparator<Object> comparator = Comparators.forType(idToTypeMapping.get(id));
+                    if (predicate.test(comparator.compare(oldValue, newValue))) {
+                        current.put(id, newValue);
+                    }
                 }
             }
         }
@@ -431,7 +461,7 @@ public class PartitionTable
         {
             for (Map.Entry<Integer, Long> entry : nullCounts.entrySet()) {
                 final Long nullCount = this.nullCounts.getOrDefault(entry.getKey(), 0l);
-                nullCounts.put(entry.getKey(), entry.getValue() + nullCount);
+                this.nullCounts.put(entry.getKey(), entry.getValue() + nullCount);
             }
         }
     }

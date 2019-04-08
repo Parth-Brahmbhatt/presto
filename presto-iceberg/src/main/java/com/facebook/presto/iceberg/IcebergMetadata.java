@@ -66,6 +66,7 @@ import org.apache.hadoop.fs.Path;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -125,10 +126,11 @@ public class IcebergMetadata
     @Override
     public IcebergTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName)
     {
-        final Optional<Table> table = metastore.getTable(tableName.getSchemaName(), tableName.getTableName());
+        IcebergTableHandle tableHandle = IcebergTableHandle.parse(tableName.getTableName(), tableName.getSchemaName());
+        final Optional<Table> table = metastore.getTable(tableHandle.getSchemaName(), tableHandle.getTableName());
         if (table.isPresent()) {
             if (icebergUtil.isIcebergTable(table.get())) {
-                return IcebergTableHandle.parse(tableName.getTableName(), tableName.getSchemaName());
+                return tableHandle;
             }
             else {
                 throw new RuntimeException(String.format("%s is not an iceberg table please query using hive catalog", tableName));
@@ -147,97 +149,6 @@ public class IcebergMetadata
         } else {
             return Optional.empty();
         }
-
-//        String schemaName = sourceTableHandle.getSchemaName();
-//        Map<String, ColumnHandle> columnHandles = getColumnHandles(session, sourceTableHandle);
-//        List<HiveColumnHandle> partitionColumns = columnHandles.entrySet().stream()
-//                .filter(e -> ((HiveColumnHandle) e.getValue()).isPartitionKey())
-//                .map(e -> (HiveColumnHandle) e.getValue())
-//                .collect(Collectors.toList());
-//
-//        List<ColumnMetadata> columnMetadatas = partitionColumns.stream()
-//                .map(columnHandle -> getColumnMetadata(session, sourceTableHandle, columnHandle))
-//                .collect(Collectors.toList());
-//
-//        // add the partition metrics related columns.
-//        List<String> partitionMetrics = ImmutableList.of("record_count", "file_count", "total_size");
-//        partitionMetrics.stream().forEach(metric -> columnMetadatas.add(new ColumnMetadata(metric, BIGINT)));
-//
-//        // add the min stats, max stats, null count stats
-//        columnHandles.values().stream()
-//                .forEach(column -> {
-//                    HiveColumnHandle columnHandle = (HiveColumnHandle) column;
-//                    columnMetadatas.add(new ColumnMetadata(columnHandle.getName(), columnHandle.getTypeSignature()))
-//                });
-//        List<String> columnMetrics = ImmutableList.of("null_count", "min_values", "max_values");
-//
-//
-//        Map<Integer, HiveColumnHandle> fieldIdToColumnHandle =
-//                IntStream.range(0, partitionColumns.size())
-//                        .boxed()
-//                        .collect(Collectors.toMap(identity(), partitionColumns::get));
-//
-//        partitionMetrics.stream().forEach(metric -> fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(metric, HIVE_LONG, BIGINT.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty())));
-//        columnMetrics.stream().forEach(metric -> fieldIdToColumnHandle.put(fieldIdToColumnHandle.size(), new HiveColumnHandle(metric, HiveType.toHiveType(hiveTypeTranslator, columnMetricType), columnMetricType.getTypeSignature(), partitionColumns.size(), PARTITION_KEY, Optional.empty())));
-//
-//        List<Type> partitionColumnTypes = columnMetadatas.stream()
-//                .map(ColumnMetadata::getType)
-//                .collect(toImmutableList());
-//
-//        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-//
-//
-//        return Optional.of(new SystemTable()
-//        {
-//            @Override
-//            public Distribution getDistribution()
-//            {
-//                return Distribution.SINGLE_COORDINATOR;
-//            }
-//
-//            @Override
-//            public ConnectorTableMetadata getTableMetadata()
-//            {
-//                return new ConnectorTableMetadata(sourceTableName, columnMetadatas);
-//            }
-//
-//            @Override
-//            public RecordCursor cursor(ConnectorTransactionHandle transactionHandle, ConnectorSession session, TupleDomain<Integer> constraint)
-//            {
-//                ClassLoader cl = Thread.currentThread().getContextClassLoader();
-//                try {
-//                    Thread.currentThread().setContextClassLoader(classLoader);
-//                    TupleDomain<HiveColumnHandle> predicates = constraint.transform(fieldIdToColumnHandle::get);
-//                    com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), schemaName, sourceTableName.getTableName(), getConfiguration(session, schemaName));
-//                    final Map<Integer, com.netflix.iceberg.types.Type> idToTypeMapping = icebergUtil.getIdToTypeMapping(icebergTable.schema());
-//                    Long snapshotId = null;
-//                    Long snapshotTimestampMills = null;
-//                    Map<StructLikeWrapper, PartitionTable.Partition> partitions = new HashMap<>();
-//                    if (sourceTableHandle.getAtId() != null) {
-//                        if (icebergTable.snapshot(sourceTableHandle.getAtId()) != null) {
-//                            snapshotId = sourceTableHandle.getAtId();
-//                        }
-//                        else {
-//                            snapshotTimestampMills = sourceTableHandle.getAtId();
-//                        }
-//                    }
-//                    TableScan tableScan = icebergUtil.getTableScan(session, predicates, snapshotId, snapshotTimestampMills, icebergTable);
-//
-//
-//                    final List<Class> partitionColumnClass = icebergTable.spec().fields().stream()
-//                            .map(field -> field.transform().getResultType(icebergTable.schema().findType(field.sourceId())).asPrimitiveType().typeId().javaClass())
-//                            .collect(Collectors.toList());
-//
-//
-//                    return new InMemoryRecordSet(partitionColumnTypes, records.build()).cursor();
-//                }
-//                finally {
-//                    Thread.currentThread().setContextClassLoader(cl);
-//                }
-//            }
-//
-//
-//        });
     }
 
     @Override
@@ -296,8 +207,7 @@ public class IcebergMetadata
         final Configuration configuration = getConfiguration(session, tbl.getSchemaName());
         final com.netflix.iceberg.Table icebergTable = icebergUtil.getIcebergTable(icebergConfig.getMetacatCatalogName(), tbl.getSchemaName(), tbl.getTableName(), configuration);
         final List<HiveColumnHandle> columns = icebergUtil.getColumns(icebergTable.schema(), icebergTable.spec(), typeManager);
-        // We use linked hashmap to preserve column order which is required for system table to work.
-        Map<String, ColumnHandle> columnHandleMap = new LinkedHashMap<>();
+        Map<String, ColumnHandle> columnHandleMap = new HashMap<>();
         for (HiveColumnHandle column : columns) {
             columnHandleMap.put(column.getName(), column);
         }
