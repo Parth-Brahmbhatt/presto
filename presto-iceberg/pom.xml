@@ -48,7 +48,7 @@
         <dependency>
             <groupId>com.netflix.iceberg</groupId>
             <artifactId>bdp-iceberg</artifactId>
-            <version>0.4.77</version>
+            <version>0.4.86</version>
         </dependency>
 
         <dependency>
@@ -225,11 +225,11 @@
             <!--<scope>test</scope>-->
         <!--</dependency>-->
 
-        <!--<dependency>-->
-            <!--<groupId>org.testng</groupId>-->
-            <!--<artifactId>testng</artifactId>-->
-            <!--<scope>test</scope>-->
-        <!--</dependency>-->
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!--<dependency>-->
             <!--<groupId>io.airlift</groupId>-->
