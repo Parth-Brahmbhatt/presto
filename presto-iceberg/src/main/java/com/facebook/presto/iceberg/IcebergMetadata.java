@@ -67,7 +67,6 @@ import org.apache.hadoop.fs.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -144,9 +143,10 @@ public class IcebergMetadata
     {
         IcebergTableHandle sourceTableHandle = IcebergTableHandle.parse(tableName.getTableName(), tableName.getSchemaName());
 
-        if(sourceTableHandle.getTableType() == TableType.PARTITIONS) {
-            return Optional.of( new PartitionTable(sourceTableHandle, session, icebergUtil, getConfiguration(session, tableName.getSchemaName()), icebergConfig, typeManager));
-        } else {
+        if (sourceTableHandle.getTableType() == TableType.PARTITIONS) {
+            return Optional.of(new PartitionTable(sourceTableHandle, session, icebergUtil, getConfiguration(session, tableName.getSchemaName()), icebergConfig, typeManager));
+        }
+        else {
             return Optional.empty();
         }
     }

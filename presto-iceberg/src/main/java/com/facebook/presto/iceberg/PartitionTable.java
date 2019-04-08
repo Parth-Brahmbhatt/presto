@@ -69,7 +69,6 @@ import static java.util.function.Function.identity;
 public class PartitionTable
         implements SystemTable
 {
-
     private final IcebergTableHandle tableHandle;
     private final ConnectorSession session;
     private final IcebergUtil icebergUtil;
@@ -180,7 +179,6 @@ public class PartitionTable
 
         try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
             for (FileScanTask fileScanTask : fileScanTasks) {
-
                 final DataFile dataFile = fileScanTask.file();
                 final StructLike partitionStruct = dataFile.partition();
                 final StructLikeWrapper partitionWrapper = StructLikeWrapper.wrap(partitionStruct);
@@ -460,7 +458,7 @@ public class PartitionTable
         public void updateNullCount(Map<Integer, Long> nullCounts)
         {
             for (Map.Entry<Integer, Long> entry : nullCounts.entrySet()) {
-                final Long nullCount = this.nullCounts.getOrDefault(entry.getKey(), 0l);
+                final Long nullCount = this.nullCounts.getOrDefault(entry.getKey(), 0L);
                 this.nullCounts.put(entry.getKey(), entry.getValue() + nullCount);
             }
         }
